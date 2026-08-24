@@ -80,6 +80,10 @@ one transaction.
   claimable in the stake pool. Stranded-not-stolen, admin-recoverable. The
   misofm plugins pin `PoolShare` to the parent's own share type; the module
   doc flags the expectation (`:25-28`).
+  **Disposition (2026-08-24):** accepted — no in-package fix exists:
+  committing `PoolShare` into the derivation key would break the
+  one-wrapper-per-(parent, StakeShare) invariant, and the misofm plugins pin
+  `PoolShare` to the parent's own share type (verified 2026-08-24).
 - **L2 (Low): `register`'s `stake_pool` is deliberately unpinned** (`:125-133`)
   — the wrapper accepts any `RoyaltyPool<StakeShare, Currency>` the parent
   admin chooses. A buggy extension could register the stake into a
@@ -88,15 +92,24 @@ one transaction.
   (sweep-then-exit) always works, so the mistake is recoverable with no value
   loss. The misofm plugin additionally pins the pool to the recording by
   derivation (`assert_pool_for_recording`) — the right place for that check.
+  **Disposition (2026-08-24):** accepted — the downstream plugin pins the pool
+  by derivation (`assert_pool_for_recording`, verified 2026-08-24), and any
+  mis-registration is recoverable via sweep-then-unregister with no value
+  loss.
 - **F3 (Informational): a positive sweep aborts if the parent's pool has no
   registered stakes** (`ENoStakedShares` in `deposit`, `pool.move:186`).
   Documented (`:196-198`): rewards stay claimable in the stake pool until a
   share holder registers. A permanently stakeless parent pool means
   permanently unswept (but never stolen) rewards — incentive-aligned with the
   pool's purpose.
+  **Disposition (2026-08-24):** accepted-by-design — rewards sit claimable,
+  never stolen, until a share holder registers; the abort is documented and
+  incentive-aligned with the pool's purpose.
 - **F4 (Informational): zero-reward sweep is a silent no-op** (destroys the
   zero balance, emits nothing, `:219-221`). Deliberate — composes safely into
   batch cranks.
+  **Disposition (2026-08-24):** accepted-by-design — the silent no-op is
+  deliberate so batch cranks compose safely.
 
 Checked and cleared — no finding:
 
