@@ -17,7 +17,7 @@ manifest_digest = "7AFB66695545775FBFBB2D3078ADFD084244D5002392E837FDE21D9EA1C6D
 deps = { MoveStdlib = "MoveStdlib" }
 
 [pinned.testnet.hikida]
-source = { git = "https://github.com/unconfirmedlabs/hikida.git", subdir = ".", rev = "e88c6fa88348bc2764823cf3666d7ca5e08b2f4f" }
+source = { git = "https://github.com/unconfirmedlabs/hikida.git", subdir = ".", rev = "4abe4c1ff482655693698fa6ab8a6e2b58f8c635" }
 use_environment = "testnet"
 manifest_digest = "5745706258F61D6CE210904B3E6AE87A73CE9D31A6F93BE4718C442529332A87"
 deps = { std = "MoveStdlib", sui = "Sui" }
@@ -25,11 +25,11 @@ deps = { std = "MoveStdlib", sui = "Sui" }
 [pinned.testnet.routed_stake]
 source = { root = true }
 use_environment = "testnet"
-manifest_digest = "CD5597827ACA04AD221CDB57416D41DF7BBCD1FECEE9F71F16BF8CF4E8C80CBD"
+manifest_digest = "E60F55257718D6D1888A6F3C0939EBBFECB5C3C814874C56B51D2F46963635AB"
 deps = { royalty_pool = "royalty_pool", std = "MoveStdlib", sui = "Sui" }
 
 [pinned.testnet.royalty_pool]
-source = { git = "https://github.com/misonetwork/royalty-pool.git", subdir = ".", rev = "ff459c9a69e154696d36358d6155ec23a329b46b" }
+source = { git = "https://github.com/misonetwork/royalty-pool.git", subdir = ".", rev = "2a55f9d8d47c8011ada5c74d181c807167d78da3" }
 use_environment = "testnet"
-manifest_digest = "C42EB345D6ECD90E5E56F9D019D92139F40C0F80F0A5F6F6D4D28FDADB203CF2"
+manifest_digest = "A14B8EEA8117AE9FF640B7D0633A291D278C3AACD2905B9C74DB5C056E785C4F"
 deps = { hikida = "hikida", std = "MoveStdlib", sui = "Sui" }
