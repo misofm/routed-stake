@@ -176,3 +176,11 @@ Checked and cleared — no finding:
   (`sweep_into_stakeless_parent_pool_keeps_exit_open`).
 - F3 (Low): funds delivered to the wrapper's own address remain
   unrecoverable — unchanged; do not pay the wrapper's address.
+- **Localnet verification (2026-09-07, sui 1.78.1):** the stakeless-destination
+  branch of `sweep` was exercised end to end on a local network: a stranger's
+  sweep into a parent pool with zero staked shares succeeded
+  (`RoutedStakeSweptEvent.value = 1000`, pool balance unchanged at 0); after a
+  100-share holder registered, a stranger's `pool::sweep_and_deposit` folded
+  the parked 1,000 from the pool's address (`cumulative_deposits = 1000`, index
+  `10¹⁹`), the holder claimed exactly 1,000, the pool's address balance read 0,
+  and the parent unregistered and unstaked its 1,000-share principal.
