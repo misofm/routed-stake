@@ -158,3 +158,21 @@ Checked and cleared — no finding:
 - Parent-side cap-gating: every `&mut UID` argument in this module is only as
   protected as the parent's `uid_mut` — audited for `miso`/`miso_party`
   objects in this set.
+
+## Amendment — 2026-09-07
+
+- **F1 (Medium, in `royalty_pool` — fixed upstream):** the pool's
+  consumed-index rounding let a large staker make a pool one base unit
+  insolvent, which made `sweep` abort in `balance.split` and so blocked
+  `unregister`/`unstake`. Fixed by the exact-debt accounting in
+  `royalty_pool` (see its AUDIT.md amendment); this package's
+  `swept_rewards_are_claimed_exactly_pro_rata_by_parent_holders` pins the
+  end-to-end claim arithmetic.
+- **F2 (Low — fixed, protocol-actions #1):** `sweep` aborted while the
+  parent's pool had no registered stake, leaving the principal immobile.
+  `sweep` now sends the reward to the parent pool's own address in that case
+  (folded in later by `pool::sweep_and_deposit`), so the exit path never
+  depends on the destination's state
+  (`sweep_into_stakeless_parent_pool_keeps_exit_open`).
+- F3 (Low): funds delivered to the wrapper's own address remain
+  unrecoverable — unchanged; do not pay the wrapper's address.

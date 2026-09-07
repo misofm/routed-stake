@@ -259,3 +259,110 @@ fun unregister_on_empty_wrapper_aborts() {
     routed.unregister(&mut parent.id, &mut stake_pool);
     abort
 }
+
+/// A parent pool with no registered stake is not a dead end: the sweep
+/// still drains the wrapped stake (the reward is sent to the parent pool's
+/// own address, to be folded in by `pool::sweep_and_deposit` once a holder
+/// registers — the unit VM cannot observe address balances), the event
+/// still fires, and the parent can unregister and unstake immediately after.
+#[test]
+fun sweep_into_stakeless_parent_pool_keeps_exit_open() {
+    let mut ts = test_scenario::begin(ADMIN);
+    let parent_id = setup_shared(&mut ts);
+
+    ts.next_tx(ADMIN);
+    let mut stake_pool = ts.take_shared<RoyaltyPool<ASSET_SHARE, USD>>();
+    stake_pool.deposit(balance::create_for_testing<USD>(500));
+    test_scenario::return_shared(stake_pool);
+
+    // --- STRANGER sweeps while the parent pool has zero staked shares ---
+    ts.next_tx(STRANGER);
+    let mut stake_pool = ts.take_shared<RoyaltyPool<ASSET_SHARE, USD>>();
+    let mut routed_pool = ts.take_shared<RoyaltyPool<PARENT_SHARE, USD>>();
+    let mut routed = ts.take_shared<RoutedStake<ASSET_SHARE, PARENT_SHARE>>();
+    assert_eq!(routed_pool.staked_shares(), 0);
+    routed.sweep(&mut stake_pool, &mut routed_pool, parent_id);
+    assert_eq!(stake_pool.pending_rewards(routed.stake()), 0);
+    assert_eq!(stake_pool.balance().value(), 0);
+    assert_eq!(routed_pool.balance().value(), 0); // parked at the pool's address
+    let events = event::events_by_type<RoutedStakeSweptEvent<ASSET_SHARE, PARENT_SHARE, USD>>();
+    assert_eq!(events.length(), 1);
+    let (_, _, value) = routed_stake::swept_event_fields(&events[0]);
+    assert_eq!(value, 500);
+    test_scenario::return_shared(stake_pool);
+    test_scenario::return_shared(routed_pool);
+    test_scenario::return_shared(routed);
+
+    // --- ADMIN exits: nothing blocks unregister/unstake ---
+    ts.next_tx(ADMIN);
+    let mut parent = ts.take_shared<Parent>();
+    let mut stake_pool = ts.take_shared<RoyaltyPool<ASSET_SHARE, USD>>();
+    let mut routed = ts.take_shared<RoutedStake<ASSET_SHARE, PARENT_SHARE>>();
+    routed.unregister(&mut parent.id, &mut stake_pool);
+    let principal = routed.unstake(&mut parent.id);
+    assert_eq!(principal.value(), 1000);
+    test_scenario::return_shared(parent);
+    test_scenario::return_shared(stake_pool);
+    test_scenario::return_shared(routed);
+    destroy(principal);
+    ts.end();
+}
+
+/// End-to-end claim arithmetic: the routed stake earns a pro-rata share of
+/// the asset pool alongside another asset holder, the sweep moves exactly
+/// that amount, and the parent's holders then claim exact pro-rata floors of
+/// it — with the sub-unit residue staying in the parent pool, never paid
+/// twice and never lost.
+#[test]
+fun swept_rewards_are_claimed_exactly_pro_rata_by_parent_holders() {
+    let mut ts = test_scenario::begin(ADMIN);
+    let parent_id = setup_shared(&mut ts);
+
+    // Another asset holder stakes 3000 next to the routed stake's 1000.
+    ts.next_tx(ADMIN);
+    let mut stake_pool = ts.take_shared<RoyaltyPool<ASSET_SHARE, USD>>();
+    let mut other = stake::new(balance::create_for_testing<ASSET_SHARE>(3000), ts.ctx());
+    stake_pool.register_stake(&mut other);
+    // Parent holders: 100 and 200.
+    let mut routed_pool = ts.take_shared<RoyaltyPool<PARENT_SHARE, USD>>();
+    let mut h1 = stake::new(balance::create_for_testing<PARENT_SHARE>(100), ts.ctx());
+    let mut h2 = stake::new(balance::create_for_testing<PARENT_SHARE>(200), ts.ctx());
+    routed_pool.register_stake(&mut h1);
+    routed_pool.register_stake(&mut h2);
+    // 4001 into the asset pool: routed stake is owed ⌊1000·4001/4000⌋ = 1000.
+    stake_pool.deposit(balance::create_for_testing<USD>(4001));
+    test_scenario::return_shared(stake_pool);
+    test_scenario::return_shared(routed_pool);
+
+    ts.next_tx(STRANGER);
+    let mut stake_pool = ts.take_shared<RoyaltyPool<ASSET_SHARE, USD>>();
+    let mut routed_pool = ts.take_shared<RoyaltyPool<PARENT_SHARE, USD>>();
+    let mut routed = ts.take_shared<RoutedStake<ASSET_SHARE, PARENT_SHARE>>();
+    assert_eq!(stake_pool.pending_rewards(routed.stake()), 1000);
+    routed.sweep(&mut stake_pool, &mut routed_pool, parent_id);
+    assert_eq!(routed_pool.balance().value(), 1000);
+    assert_eq!(stake_pool.pending_rewards(routed.stake()), 0);
+    // The other asset holder is owed ⌊3000·4001/4000⌋ = 3000; 1 unit residue.
+    assert_eq!(stake_pool.pending_rewards(&other), 3000);
+    test_scenario::return_shared(stake_pool);
+    test_scenario::return_shared(routed_pool);
+    test_scenario::return_shared(routed);
+
+    // Parent holders claim ⌊100·1000/300⌋ = 333 and ⌊200·1000/300⌋ = 666.
+    ts.next_tx(ADMIN);
+    let mut routed_pool = ts.take_shared<RoyaltyPool<PARENT_SHARE, USD>>();
+    assert_eq!(routed_pool.pending_rewards(&h1), 333);
+    assert_eq!(routed_pool.pending_rewards(&h2), 666);
+    let r1 = routed_pool.claim_rewards(&mut h1);
+    let r2 = routed_pool.claim_rewards(&mut h2);
+    assert_eq!(r1.value(), 333);
+    assert_eq!(r2.value(), 666);
+    assert_eq!(routed_pool.balance().value(), 1);
+    routed_pool.claim_rewards(&mut h1).destroy_zero(); // nothing more to claim
+    routed_pool.unregister_stake(&mut h1);
+    routed_pool.unregister_stake(&mut h2);
+    test_scenario::return_shared(routed_pool);
+
+    destroy(r1); destroy(r2); destroy(h1); destroy(h2); destroy(other);
+    ts.end();
+}

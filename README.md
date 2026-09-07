@@ -14,7 +14,7 @@ Lifecycle operations take the parent's `&mut UID` as the credential — cap-gati
 
 - **`routed_stake::new<StakeShare, PoolShare>(parent, balance, ctx)`** — claims the derived object and wraps `balance` as the staked position; `share` makes it publicly sweepable.
 - **`routed_stake::register` / `unregister`** — parent-gated; binds/unbinds the position to the pool it earns from. Unregister requires rewards drained to zero (a final `sweep`) first.
-- **`routed_stake::sweep<StakeShare, PoolShare, Currency>(stake_pool, routed_pool, parent_id)`** — permissionless; claims accrued rewards and deposits them into the parent's pool. Zero rewards are a no-op; positive rewards abort if the destination pool has no registered stakes yet (they stay claimable until it does).
+- **`routed_stake::sweep<StakeShare, PoolShare, Currency>(stake_pool, routed_pool, parent_id)`** — permissionless; claims accrued rewards and deposits them into the parent's pool. Zero rewards are a no-op. While the parent's pool has no registered stake, the reward is sent to the pool's own address instead (folded in later by `pool::sweep_and_deposit`), so a sweep — and hence the parent's exit via `unregister`/`unstake` — never depends on the destination's state.
 - **`routed_stake::unstake` / `restake`** — parent-gated; removes the position and returns its principal `Balance` / refills the emptied wrapper.
 - **`routed_stake::derived_address<StakeShare>(parent_id)`** — the wrapper's deterministic address; `assert_derived_from` verifies it on-chain.
 - Views: `id`, `has_stake`, `value`, `stake` (read-only, e.g. for `pool::pending_rewards`).

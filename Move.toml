@@ -5,4 +5,5 @@ license = "Apache 2.0"
 authors = ["Miso Labs, Inc. (build@miso.network)"]
 
 [dependencies]
-royalty_pool = { git = "https://github.com/misofm/royalty-pool.git", rev = "0b40a6f5d37c595d29acd7f6ebbee0a11177482f" }
+# TODO(release): re-pin to the pushed `exact-accounting` commit of misofm/royalty-pool.
+royalty_pool = { local = "../royalty-pool" }
