@@ -55,11 +55,11 @@ deps = { std = "MoveStdlib", sui = "Sui" }
 [pinned.testnet.routed_stake]
 source = { root = true }
 use_environment = "testnet"
-manifest_digest = "B73387ABA39517D0874AEC52387451F533E6A0746D8558AFDD83B2AC0EC6428B"
+manifest_digest = "F877E579E2A80A1A9BFE9EFB1ADDBAA536F5FC012CE8EEAC58731361ACBD799B"
 deps = { royalty_pool = "royalty_pool", std = "MoveStdlib", sui = "Sui" }
 
 [pinned.testnet.royalty_pool]
-source = { git = "https://github.com/misofm/royalty-pool.git", subdir = ".", rev = "a5407e77237052d02f8d664cba405c692e7fdae5" }
+source = { git = "https://github.com/misofm/royalty-pool.git", subdir = ".", rev = "de389b508708fb5c7a14ed3548e871626c844bdc" }
 use_environment = "testnet"
 manifest_digest = "A14B8EEA8117AE9FF640B7D0633A291D278C3AACD2905B9C74DB5C056E785C4F"
 deps = { hikida = "hikida", std = "MoveStdlib", sui = "Sui" }
