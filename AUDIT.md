@@ -223,7 +223,7 @@ for having nothing to do.
   stakers (folded in later by `pool::settle`), `false` when it was deposited
   into the accumulator directly. `swept_event_fields` returns the field
   appended to the tuple: `(routed_stake_id, parent_id, value, parked)`.
-  Every consumer (this module's tests and the plugin/e2e call sites) was
+  Every consumer (both test modules — there is no plugin in this repo) was
   updated to the new shape; the parked case is pinned by
   `sweep_into_stakeless_parent_pool_keeps_exit_open` (`parked == true`,
   routed pool balance unchanged) and the deposited case by
@@ -244,14 +244,39 @@ for having nothing to do.
   case attempting the claim against `stake_pool` would itself abort inside
   `claim_rewards` (`EPoolIdMismatch`) — the no-op is strictly safer than
   letting that abort surface from a batch crank.
-- **Not touched:** `register_stake`'s `EAlreadyRegistered` and
-  `unregister_stake`'s `ENotRegistered` / `EPoolIdMismatch` /
-  `ELastClaimIndexMismatch` remain reachable transitively through
-  `routed_stake::register` / `unregister`, as before this revision; no
-  dedicated `routed_stake`-side test exercises them (they are `royalty_pool`'s
-  own invariants, covered in its own suite). Out of scope for this revision;
-  flagged here for the record, not fixed.
+- **The derivation-first ordering is now pinned.** Two tests exercise both
+  wrong-object asserts against an *emptied* wrapper — where guard (i) would
+  otherwise short-circuit first if the asserts were ever moved after it —
+  and confirm the abort still fires:
+  `sweep_asserts_derivation_before_the_no_stake_guard`
+  (`ENotDerivedFromParent`) and
+  `sweep_asserts_routed_pool_derivation_before_the_no_stake_guard`
+  (`EPoolNotDerivedFromParent`).
+- **`restake`'s `EZeroBalance` is now tested.** `restake` wraps `balance`
+  into `stake::new` exactly as `new` does, so a zero balance aborts there
+  too; `restake_with_zero_balance_aborts` pins it, matching
+  `new_with_zero_balance_aborts`.
+- **The four `royalty_pool` codes reachable one call deep through
+  `register`/`unregister` are now tested**, closing the gap the first cut of
+  this revision left open: `register_stake`'s `EAlreadyRegistered`
+  (`register_twice_for_the_same_currency_aborts`), and `unregister_stake`'s
+  `ENotRegistered` (`unregister_never_registered_aborts`),
+  `EPoolIdMismatch` (`unregister_against_a_different_pool_aborts`), and
+  `ELastClaimIndexMismatch` (`unregister_with_pending_rewards_aborts`). All
+  four are `royalty_pool`'s own invariants (covered in its own suite too),
+  reached here through this module's public API exactly as a caller would.
+- **`type_name::with_defining_ids`, not `type_name::get`.** `sweep`'s guard
+  (ii) needs the same registration key `register_stake`/`unregister_stake`
+  compute; at this framework revision (`2a0becb2`) `type_name::get<T>()` is
+  `#[deprecated(note = "Renamed to with_defining_ids")]` and its body is
+  literally `with_defining_ids<T>()` — the same native call, always
+  resolving to the *defining* package ID either way, so there is no
+  key-mismatch risk from choosing one over the other. `with_defining_ids`
+  is used here because `get` triggers a lint warning (`WC04037`) that would
+  fail this package's warning-clean build, and because it matches
+  `royalty_pool::pool`'s own call-site style.
 - **Coverage.** `sui move coverage summary --summarize-functions` reports
   100% instruction coverage for every function in `sources/routed_stake.move`
-  after this change (24/24 tests passing on both `testnet` and `mainnet`,
-  up from 18 before). See the PR body for the full per-function table.
+  after this change (31/31 tests passing on both `testnet` and `mainnet`,
+  up from 18 before this revision). See the PR body for the full
+  per-function table.
