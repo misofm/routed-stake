@@ -184,3 +184,99 @@ Checked and cleared — no finding:
   the parked 1,000 from the pool's address (`cumulative_deposits = 1000`, index
   `10¹⁹`), the holder claimed exactly 1,000, the pool's address balance read 0,
   and the parent unregistered and unstaked its 1,000-share principal.
+
+## Amendment — 2026-09-10 (total sweep / `pool::settle` API revision)
+
+**Revision:** `feat/sweep-total` · **Toolchain:** sui 1.78.1-722ac4fcf484 ·
+**Dependency:** `royalty_pool` `1df6ee73` (`feat/settle-recover-coins`,
+merged to main; see its `AUDIT.md` "Amendment — 2026-09-10" for `settle` /
+`recover_coins` / `settled_value`).
+
+`royalty_pool::pool` retired `sweep_and_deposit` (aborted `ENoSettledFunds`
+on an empty snapshot) and `receive_and_deposit` in favor of total `settle` /
+`recover_coins`. This package carries the same total-for-nothing-to-do
+principle down into `sweep`, which used to abort `ENoStake` on an emptied
+wrapper — the one crank-facing path in this module that could still abort
+for having nothing to do.
+
+- **`sweep` is now total.** It returns `u64` — the value moved, deposited or
+  parked — and is a no-op (0 returned, no event) in each of these cases,
+  checked in this order, before either pool is touched:
+  1. the wrapper is empty (`self.stake.is_none()`, the former `ENoStake`
+     case — `sweep_on_emptied_wrapper_is_a_total_no_op`);
+  2. the wrapped stake has no registration for `Currency`
+     (`sweep_on_unregistered_position_is_a_total_no_op`,
+     `sweep_after_unregister_is_a_total_no_op`);
+  3. that registration names a pool other than `stake_pool`
+     (`sweep_against_a_different_pool_of_the_same_currency_is_a_total_no_op`).
+
+  Only once all three pass does `sweep` claim from `stake_pool`; a zero
+  reward is, as before, a no-op too (pinned by the second call in
+  `sweep_routes_rewards_to_the_parent_pool`). The two wrong-object asserts —
+  `self.assert_derived_from(parent_id)` and
+  `routed_pool.assert_derived_from(parent_id)` — are unaffected: they stay
+  first, and stay hard aborts (`ENotDerivedFromParent` /
+  `EPoolNotDerivedFromParent`), because a forged parent or a foreign pool is
+  a violated invariant, not "nothing to do."
+- **`RoutedStakeSweptEvent` gains `parked: bool`** — `true` when the reward
+  was sent to the routed pool's own address because it had no registered
+  stakers (folded in later by `pool::settle`), `false` when it was deposited
+  into the accumulator directly. `swept_event_fields` returns the field
+  appended to the tuple: `(routed_stake_id, parent_id, value, parked)`.
+  Every consumer (both test modules — there is no plugin in this repo) was
+  updated to the new shape; the parked case is pinned by
+  `sweep_into_stakeless_parent_pool_keeps_exit_open` (`parked == true`,
+  routed pool balance unchanged) and the deposited case by
+  `stranger_sweeps_into_shared_parent_pool` (`parked == false`).
+- **`ENoStake` is unchanged for the intents.** `register`, `unregister`,
+  `unstake`, and the `stake()` view still abort `ENoStake` on an empty
+  wrapper — those are deliberate operations on a specific position, not
+  crank-facing sweeps, so "nothing to do" isn't the right frame for them.
+  Two lifecycle-credential tests that were missing (`unregister` and
+  `restake` rejecting a wrong parent `&mut UID`) are added alongside this
+  change for parity with `register`/`unstake`, which already had theirs.
+- **Why the no-op checks can't misroute or skip a real claim.** All three
+  checks read only the wrapped `Stake`'s own registration record (never the
+  pool) before any pool is touched, so a no-op can never be mistaken for a
+  claim: `stake::has_registration`/`get_registration` are queried on
+  `self.stake`, and `registration_pool_id(..) != object::id(stake_pool)` can
+  only be true when the stake is registered with some *other* pool, in which
+  case attempting the claim against `stake_pool` would itself abort inside
+  `claim_rewards` (`EPoolIdMismatch`) — the no-op is strictly safer than
+  letting that abort surface from a batch crank.
+- **The derivation-first ordering is now pinned.** Two tests exercise both
+  wrong-object asserts against an *emptied* wrapper — where guard (i) would
+  otherwise short-circuit first if the asserts were ever moved after it —
+  and confirm the abort still fires:
+  `sweep_asserts_derivation_before_the_no_stake_guard`
+  (`ENotDerivedFromParent`) and
+  `sweep_asserts_routed_pool_derivation_before_the_no_stake_guard`
+  (`EPoolNotDerivedFromParent`).
+- **`restake`'s `EZeroBalance` is now tested.** `restake` wraps `balance`
+  into `stake::new` exactly as `new` does, so a zero balance aborts there
+  too; `restake_with_zero_balance_aborts` pins it, matching
+  `new_with_zero_balance_aborts`.
+- **The four `royalty_pool` codes reachable one call deep through
+  `register`/`unregister` are now tested**, closing the gap the first cut of
+  this revision left open: `register_stake`'s `EAlreadyRegistered`
+  (`register_twice_for_the_same_currency_aborts`), and `unregister_stake`'s
+  `ENotRegistered` (`unregister_never_registered_aborts`),
+  `EPoolIdMismatch` (`unregister_against_a_different_pool_aborts`), and
+  `ELastClaimIndexMismatch` (`unregister_with_pending_rewards_aborts`). All
+  four are `royalty_pool`'s own invariants (covered in its own suite too),
+  reached here through this module's public API exactly as a caller would.
+- **`type_name::with_defining_ids`, not `type_name::get`.** `sweep`'s guard
+  (ii) needs the same registration key `register_stake`/`unregister_stake`
+  compute; at this framework revision (`2a0becb2`) `type_name::get<T>()` is
+  `#[deprecated(note = "Renamed to with_defining_ids")]` and its body is
+  literally `with_defining_ids<T>()` — the same native call, always
+  resolving to the *defining* package ID either way, so there is no
+  key-mismatch risk from choosing one over the other. `with_defining_ids`
+  is used here because `get` triggers a lint warning (`WC04037`) that would
+  fail this package's warning-clean build, and because it matches
+  `royalty_pool::pool`'s own call-site style.
+- **Coverage.** `sui move coverage summary --summarize-functions` reports
+  100% instruction coverage for every function in `sources/routed_stake.move`
+  after this change (31/31 tests passing on both `testnet` and `mainnet`,
+  up from 18 before this revision). See the PR body for the full
+  per-function table.
