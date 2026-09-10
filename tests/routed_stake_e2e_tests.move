@@ -106,20 +106,24 @@ fun stranger_sweeps_into_shared_parent_pool() {
     let mut routed_pool = ts.take_shared<RoyaltyPool<PARENT_SHARE, USD>>();
     let mut routed = ts.take_shared<RoutedStake<ASSET_SHARE, PARENT_SHARE>>();
     let routed_id = object::id(&routed);
-    routed.sweep(&mut stake_pool, &mut routed_pool, parent_id);
+    let value = routed.sweep(&mut stake_pool, &mut routed_pool, parent_id);
+    assert_eq!(value, 500);
     assert_eq!(routed_pool.balance().value(), 500);
     // The wrapped stake stayed put — sweep does not touch principal.
     assert_eq!(routed.stake().value(), 1000);
 
-    // The sweep emits exactly one event with the full payload pinned.
+    // The sweep emits exactly one event with the full payload pinned. The
+    // parent's pool already has a registered holder, so the reward was
+    // deposited, not parked.
     let events = event::events_by_type<RoutedStakeSweptEvent<ASSET_SHARE, PARENT_SHARE, USD>>();
     assert_eq!(events.length(), 1);
-    let (event_routed_id, event_parent_id, event_value) = routed_stake::swept_event_fields(
+    let (event_routed_id, event_parent_id, event_value, event_parked) = routed_stake::swept_event_fields(
         &events[0],
     );
     assert_eq!(event_routed_id, routed_id);
     assert_eq!(event_parent_id, parent_id);
     assert_eq!(event_value, 500);
+    assert_eq!(event_parked, false);
 
     test_scenario::return_shared(stake_pool);
     test_scenario::return_shared(routed_pool);
@@ -262,9 +266,10 @@ fun unregister_on_empty_wrapper_aborts() {
 
 /// A parent pool with no registered stake is not a dead end: the sweep
 /// still drains the wrapped stake (the reward is sent to the parent pool's
-/// own address, to be folded in by `pool::sweep_and_deposit` once a holder
-/// registers — the unit VM cannot observe address balances), the event
-/// still fires, and the parent can unregister and unstake immediately after.
+/// own address, to be folded in by `pool::settle` once a holder registers —
+/// the unit VM cannot observe address balances), the event still fires with
+/// `parked: true`, and the parent can unregister and unstake immediately
+/// after.
 #[test]
 fun sweep_into_stakeless_parent_pool_keeps_exit_open() {
     let mut ts = test_scenario::begin(ADMIN);
@@ -281,14 +286,16 @@ fun sweep_into_stakeless_parent_pool_keeps_exit_open() {
     let mut routed_pool = ts.take_shared<RoyaltyPool<PARENT_SHARE, USD>>();
     let mut routed = ts.take_shared<RoutedStake<ASSET_SHARE, PARENT_SHARE>>();
     assert_eq!(routed_pool.staked_shares(), 0);
-    routed.sweep(&mut stake_pool, &mut routed_pool, parent_id);
+    let value = routed.sweep(&mut stake_pool, &mut routed_pool, parent_id);
+    assert_eq!(value, 500);
     assert_eq!(stake_pool.pending_rewards(routed.stake()), 0);
     assert_eq!(stake_pool.balance().value(), 0);
     assert_eq!(routed_pool.balance().value(), 0); // parked at the pool's address
     let events = event::events_by_type<RoutedStakeSweptEvent<ASSET_SHARE, PARENT_SHARE, USD>>();
     assert_eq!(events.length(), 1);
-    let (_, _, value) = routed_stake::swept_event_fields(&events[0]);
-    assert_eq!(value, 500);
+    let (_, _, event_value, event_parked) = routed_stake::swept_event_fields(&events[0]);
+    assert_eq!(event_value, 500);
+    assert_eq!(event_parked, true);
     test_scenario::return_shared(stake_pool);
     test_scenario::return_shared(routed_pool);
     test_scenario::return_shared(routed);
