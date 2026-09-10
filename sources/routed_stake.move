@@ -33,6 +33,7 @@ module routed_stake::routed_stake;
 
 use royalty_pool::pool::RoyaltyPool;
 use royalty_pool::stake::{Self, Stake};
+use std::type_name;
 use sui::balance::Balance;
 use sui::derived_object::{claim, derive_address};
 use sui::event::emit;
@@ -68,6 +69,10 @@ public struct RoutedStakeSweptEvent<phantom StakeShare, phantom PoolShare, phant
     routed_stake_id: ID,
     parent_id: ID,
     value: u64,
+    /// `true` when the reward was sent to the routed pool's own address
+    /// because it had no stakers to attribute the deposit to; `false` when
+    /// it was deposited into the accumulator directly.
+    parked: bool,
 }
 
 public struct RoutedStakeUnstakedEvent<phantom StakeShare, phantom PoolShare> has copy, drop {
@@ -192,35 +197,52 @@ public fun restake<StakeShare, PoolShare>(
 /// Claim the wrapped stake's accrued rewards from `stake_pool` and commit
 /// them to `routed_pool` — the parent's own pool. Permissionless: the
 /// caller supplies `parent_id`, but cannot lie, because both the wrapper's
-/// own address and `routed_pool`'s address must derive from it. A zero
-/// reward is a no-op (no event), so the call composes safely into batch
-/// PTBs.
+/// own address and `routed_pool`'s address must derive from it (checked
+/// first, and always — these are wrong-object asserts, not "nothing to
+/// do"). Returns the value moved, deposited or parked.
+///
+/// A crank-facing call never aborts for having nothing to do: `sweep` is a
+/// total no-op — 0 returned, no event — in each of these cases, checked in
+/// this order before touching either pool: the wrapper is empty
+/// (`has_stake` false); the wrapped stake has no registration for
+/// `Currency`; or its registration names a pool other than `stake_pool`.
+/// Only once all three pass does it claim from `stake_pool` — where a zero
+/// reward is, again, a no-op.
 ///
 /// A pool deposit needs a registered stake to attribute to. While
 /// `routed_pool` has none, the reward is instead sent to the pool's own
 /// address — ordinary address-delivered funds, folded in permissionlessly by
-/// `pool::sweep_and_deposit` once a stake registers. Either way the money is
-/// committed to the parent's pool, so the route stays fixed and this call —
-/// and therefore `unregister`/`unstake` — can never be blocked by the
-/// destination's state.
+/// `pool::settle` once a stake registers (`parked: true` in the emitted
+/// event). Either way the money is committed to the parent's pool, so the
+/// route stays fixed and this call — and therefore `unregister`/`unstake` —
+/// can never be blocked by the destination's state.
 public fun sweep<StakeShare, PoolShare, Currency>(
     self: &mut RoutedStake<StakeShare, PoolShare>,
     stake_pool: &mut RoyaltyPool<StakeShare, Currency>,
     routed_pool: &mut RoyaltyPool<PoolShare, Currency>,
     parent_id: ID,
-) {
+): u64 {
     self.assert_derived_from(parent_id);
     routed_pool.assert_derived_from(parent_id);
-    assert!(self.stake.is_some(), ENoStake);
+
+    if (self.stake.is_none()) return 0;
+
+    let currency = type_name::with_defining_ids<Currency>();
+    let wrapped = self.stake.borrow();
+    if (!wrapped.has_registration(&currency)) return 0;
+
+    let registration = wrapped.get_registration(&currency);
+    if (stake::registration_pool_id(registration) != object::id(stake_pool)) return 0;
 
     let reward = stake_pool.claim_rewards(self.stake.borrow_mut());
     let value = reward.value();
     if (value == 0) {
         reward.destroy_zero();
-        return
+        return 0
     };
 
-    if (routed_pool.staked_shares() == 0) {
+    let parked = routed_pool.staked_shares() == 0;
+    if (parked) {
         reward.send_funds(object::id(routed_pool).to_address());
     } else {
         routed_pool.deposit(reward);
@@ -230,7 +252,10 @@ public fun sweep<StakeShare, PoolShare, Currency>(
         routed_stake_id: object::id(self),
         parent_id,
         value,
+        parked,
     });
+
+    value
 }
 
 // === View Functions ===
@@ -277,8 +302,8 @@ public fun assert_derived_from<StakeShare, PoolShare>(
 #[test_only]
 public fun swept_event_fields<StakeShare, PoolShare, Currency>(
     event: &RoutedStakeSweptEvent<StakeShare, PoolShare, Currency>,
-): (ID, ID, u64) {
-    (event.routed_stake_id, event.parent_id, event.value)
+): (ID, ID, u64, bool) {
+    (event.routed_stake_id, event.parent_id, event.value, event.parked)
 }
 
 /// Test-only accessor for `RoutedStakeUnstakedEvent`'s payload.
