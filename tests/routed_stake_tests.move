@@ -26,6 +26,10 @@ use sui::event;
 
 // Mirrored from royalty_pool::pool (private there).
 const EPoolNotDerivedFromParent: u64 = 0;
+const EAlreadyRegistered: u64 = 2;
+const ENotRegistered: u64 = 3;
+const EPoolIdMismatch: u64 = 4;
+const ELastClaimIndexMismatch: u64 = 5;
 // Mirrored from royalty_pool::stake (private there).
 const EZeroBalance: u64 = 0;
 const EPoolsRegistered: u64 = 1;
@@ -165,6 +169,49 @@ fun sweep_rejects_foreign_routed_pool() {
     abort
 }
 
+/// The two wrong-object asserts run before guard (i) (`self.stake.is_none()`),
+/// not after: an emptied wrapper — which would otherwise take the total
+/// no-op path — must still abort on a forged `parent_id`, proving the
+/// asserts are not short-circuited by the no-op checks.
+#[test, expected_failure(abort_code = routed_stake::ENotDerivedFromParent, location = routed_stake)]
+fun sweep_asserts_derivation_before_the_no_stake_guard() {
+    let ctx = &mut tx_context::dummy();
+    let (asset, mut parent, mut stake_pool, mut routed_pool) = setup(ctx);
+
+    let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
+        &mut parent,
+        balance::create_for_testing<ASSET_SHARE>(1000),
+        ctx,
+    );
+    destroy(routed.unstake(&mut parent));
+
+    // The wrapper is empty — guard (i) would return 0 — but a forged parent
+    // id must abort before that guard is ever reached.
+    routed.sweep(&mut stake_pool, &mut routed_pool, asset.to_inner());
+    abort
+}
+
+/// Same ordering claim for `routed_pool`'s own derivation assert: an emptied
+/// wrapper does not let a foreign routed pool slip through as a no-op.
+#[test, expected_failure(abort_code = EPoolNotDerivedFromParent, location = royalty_pool::pool)]
+fun sweep_asserts_routed_pool_derivation_before_the_no_stake_guard() {
+    let ctx = &mut tx_context::dummy();
+    let (_asset, mut parent, mut stake_pool, _routed_pool) = setup(ctx);
+    let parent_id = parent.to_inner();
+    let mut foreign_parent = object::new(ctx);
+    let mut foreign_pool = pool::new<PARENT_SHARE, USD>(&mut foreign_parent);
+
+    let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
+        &mut parent,
+        balance::create_for_testing<ASSET_SHARE>(1000),
+        ctx,
+    );
+    destroy(routed.unstake(&mut parent));
+
+    routed.sweep(&mut stake_pool, &mut foreign_pool, parent_id);
+    abort
+}
+
 #[test, expected_failure(abort_code = routed_stake::ENotDerivedFromParent, location = routed_stake)]
 fun register_rejects_wrong_parent_credential() {
     let ctx = &mut tx_context::dummy();
@@ -209,6 +256,82 @@ fun unregister_rejects_wrong_parent_credential() {
 
     // Control of some other UID is not authority over this wrapper.
     routed.unregister(&mut asset, &mut stake_pool);
+    abort
+}
+
+// `register_stake`'s and `unregister_stake`'s own invariants are one call
+// deep inside `routed_stake::register`/`unregister`; reached here through
+// this module's public API exactly as a caller of it would trigger them.
+
+#[test, expected_failure(abort_code = EAlreadyRegistered, location = royalty_pool::pool)]
+fun register_twice_for_the_same_currency_aborts() {
+    let ctx = &mut tx_context::dummy();
+    let (_asset, mut parent, mut stake_pool, _routed_pool) = setup(ctx);
+
+    let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
+        &mut parent,
+        balance::create_for_testing<ASSET_SHARE>(1000),
+        ctx,
+    );
+    routed.register(&mut parent, &mut stake_pool);
+
+    // Already registered for this Currency.
+    routed.register(&mut parent, &mut stake_pool);
+    abort
+}
+
+#[test, expected_failure(abort_code = ENotRegistered, location = royalty_pool::pool)]
+fun unregister_never_registered_aborts() {
+    let ctx = &mut tx_context::dummy();
+    let (_asset, mut parent, mut stake_pool, _routed_pool) = setup(ctx);
+
+    let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
+        &mut parent,
+        balance::create_for_testing<ASSET_SHARE>(1000),
+        ctx,
+    );
+
+    // Never registered — nothing for the pool to unregister.
+    routed.unregister(&mut parent, &mut stake_pool);
+    abort
+}
+
+#[test, expected_failure(abort_code = EPoolIdMismatch, location = royalty_pool::pool)]
+fun unregister_against_a_different_pool_aborts() {
+    let ctx = &mut tx_context::dummy();
+    let (_asset_x, mut parent, mut stake_pool_x, _routed_pool) = setup(ctx);
+    let mut asset_y = object::new(ctx);
+    let mut stake_pool_y = pool::new<ASSET_SHARE, USD>(&mut asset_y);
+
+    let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
+        &mut parent,
+        balance::create_for_testing<ASSET_SHARE>(1000),
+        ctx,
+    );
+    // Registered with pool X ...
+    routed.register(&mut parent, &mut stake_pool_x);
+
+    // ... but unregistered against pool Y, a different (same-typed) pool.
+    routed.unregister(&mut parent, &mut stake_pool_y);
+    abort
+}
+
+#[test, expected_failure(abort_code = ELastClaimIndexMismatch, location = royalty_pool::pool)]
+fun unregister_with_pending_rewards_aborts() {
+    let ctx = &mut tx_context::dummy();
+    let (_asset, mut parent, mut stake_pool, _routed_pool) = setup(ctx);
+
+    let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
+        &mut parent,
+        balance::create_for_testing<ASSET_SHARE>(1000),
+        ctx,
+    );
+    routed.register(&mut parent, &mut stake_pool);
+    stake_pool.deposit(balance::create_for_testing<USD>(500));
+
+    // A final sweep is required first — unregister with rewards still
+    // claimable aborts rather than stranding them.
+    routed.unregister(&mut parent, &mut stake_pool);
     abort
 }
 
@@ -387,6 +510,25 @@ fun restake_rejects_wrong_parent_credential() {
 
     // Control of some other UID is not authority over this wrapper.
     routed.restake(&mut asset, balance::create_for_testing<ASSET_SHARE>(1), ctx);
+    abort
+}
+
+// `restake` wraps `balance` into `stake::new` exactly as `new` does, so a
+// zero balance aborts there too (`EZeroBalance`), before a stake is ever
+// installed into the emptied wrapper.
+#[test, expected_failure(abort_code = EZeroBalance, location = royalty_pool::stake)]
+fun restake_with_zero_balance_aborts() {
+    let ctx = &mut tx_context::dummy();
+    let (_asset, mut parent, _stake_pool, _routed_pool) = setup(ctx);
+
+    let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
+        &mut parent,
+        balance::create_for_testing<ASSET_SHARE>(1000),
+        ctx,
+    );
+    destroy(routed.unstake(&mut parent));
+
+    routed.restake(&mut parent, balance::create_for_testing<ASSET_SHARE>(0), ctx);
     abort
 }
 
