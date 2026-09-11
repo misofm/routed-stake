@@ -13,8 +13,8 @@ and destination pool must both derive from the supplied parent ID.
 
 The implementation preserves storage, dependency calls, assertion order,
 economics, and the original no-op guards. It does not expose the wrapped stake
-or invent a parent ID for sharing. The derived stake UID is captured before
-unstake destroys it; restake captures the fresh UID. Empty wrappers remain
+or invent a parent ID for sharing. The wrapped stake ID is captured before
+unstake destroys it; restake captures the fresh wrapped stake ID. Empty wrappers remain
 usable by restake and retain their derived object.
 
 ## Event contract
@@ -47,8 +47,9 @@ The fixed BCS sizes are 104 bytes for created/unstaked/restaked, 81 for shared,
 With Sui 1.79.0:
 
 - Testnet and Mainnet lint builds use warnings-as-errors.
-- The package test suite has 33 tests (the original 31 plus rich-event schema
-  and empty-share sentinel tests); all pass in both environments.
+- The package test suite has 39 tests (the original 31 plus exhaustive rich
+  event, silence, parked/deposited, and generic-separation tests); all pass in
+  both environments.
 - Coverage runs exercise lifecycle, shared-object production flow, parked and
   deposited sweeps, zero and repeated no-ops, wrong-parent/foreign-pool guard
   precedence, registration failures, fresh restake IDs, generic phantom

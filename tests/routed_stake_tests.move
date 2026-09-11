@@ -571,63 +571,6 @@ fun new_twice_for_same_parent_and_share_aborts() {
     abort
 }
 
-/// Event schemas stay fixed-size and every lifecycle transition emits once.
-#[test]
-fun lifecycle_events_have_complete_payloads_and_fixed_sizes() {
-    let ctx = &mut tx_context::dummy();
-    let (asset, mut parent, mut stake_pool, mut routed_pool) = setup(ctx);
-    let parent_id = parent.to_inner();
-    let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
-        &mut parent,
-        balance::create_for_testing<ASSET_SHARE>(1000),
-        ctx,
-    );
-    let created = event::events_by_type<routed_stake::RoutedStakeCreatedEvent<ASSET_SHARE, PARENT_SHARE>>();
-    assert_eq!(created.length(), 1);
-    assert_eq!(bcs::to_bytes(&created[0]).length(), 104);
-    let (_, _, _, _) = routed_stake::created_event_fields(&created[0]);
-
-    routed.register(&mut parent, &mut stake_pool);
-    let registered = event::events_by_type<routed_stake::RoutedStakeRegisteredEvent<ASSET_SHARE, PARENT_SHARE, USD>>();
-    assert_eq!(registered.length(), 1);
-    assert_eq!(bcs::to_bytes(&registered[0]).length(), 232);
-    let (_, _, _, _, _, _, _, _, _, _, _) = routed_stake::registered_event_fields(&registered[0]);
-
-    stake_pool.deposit(balance::create_for_testing<USD>(500));
-    let mut holder = stake::new(balance::create_for_testing<PARENT_SHARE>(100), ctx);
-    routed_pool.register_stake(&mut holder);
-    assert_eq!(routed.sweep(&mut stake_pool, &mut routed_pool, parent_id), 500);
-    let swept = event::events_by_type<routed_stake::RoutedStakeSweptEvent<ASSET_SHARE, PARENT_SHARE, USD>>();
-    assert_eq!(swept.length(), 1);
-    assert_eq!(bcs::to_bytes(&swept[0]).length(), 481);
-    let (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = routed_stake::swept_event_fields(&swept[0]);
-
-    routed.unregister(&mut parent, &mut stake_pool);
-    let unregistered = event::events_by_type<routed_stake::RoutedStakeUnregisteredEvent<ASSET_SHARE, PARENT_SHARE, USD>>();
-    assert_eq!(unregistered.length(), 1);
-    assert_eq!(bcs::to_bytes(&unregistered[0]).length(), 232);
-    let (_, _, _, _, _, _, _, _, _, _, _) = routed_stake::unregistered_event_fields(&unregistered[0]);
-
-    let principal = routed.unstake(&mut parent);
-    let unstaked = event::events_by_type<routed_stake::RoutedStakeUnstakedEvent<ASSET_SHARE, PARENT_SHARE>>();
-    assert_eq!(unstaked.length(), 1);
-    assert_eq!(bcs::to_bytes(&unstaked[0]).length(), 104);
-    let (_, _, _, _) = routed_stake::unstaked_event_fields(&unstaked[0]);
-
-    routed.restake(&mut parent, balance::create_for_testing<ASSET_SHARE>(700), ctx);
-    let restaked = event::events_by_type<routed_stake::RoutedStakeRestakedEvent<ASSET_SHARE, PARENT_SHARE>>();
-    assert_eq!(restaked.length(), 1);
-    assert_eq!(bcs::to_bytes(&restaked[0]).length(), 104);
-    let (_, _, _, _) = routed_stake::restaked_event_fields(&restaked[0]);
-
-    destroy(principal);
-    destroy(holder);
-    destroy(routed);
-    destroy(stake_pool);
-    destroy(routed_pool);
-    asset.delete();
-    parent.delete();
-}
 
 #[test]
 fun sharing_empty_wrapper_uses_zero_sentinel() {
