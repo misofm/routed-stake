@@ -14,10 +14,20 @@ Lifecycle operations take the parent's `&mut UID` as the credential — cap-gati
 
 - **`routed_stake::new<StakeShare, PoolShare>(parent, balance, ctx)`** — claims the derived object and wraps `balance` as the staked position; `share` makes it publicly sweepable.
 - **`routed_stake::register` / `unregister`** — parent-gated; binds/unbinds the position to the pool it earns from. Unregister requires rewards drained to zero (a final `sweep`) first.
-- **`routed_stake::sweep<StakeShare, PoolShare, Currency>(stake_pool, routed_pool, parent_id): u64`** — permissionless; claims accrued rewards and commits them to the parent's pool. Returns the value moved. Total: a crank-facing call never aborts for having nothing to do — it is a no-op returning 0, with no event, when the wrapper is empty, when the wrapped stake has no registration for `Currency`, when that registration names a pool other than `stake_pool`, or when the claimed reward is zero. Otherwise it emits `RoutedStakeSweptEvent { .., value, parked }`: while the parent's pool has no registered stake, the reward is instead sent to the pool's own address (`parked: true`), folded in later by `pool::settle`, so a sweep — and hence the parent's exit via `unregister`/`unstake` — never depends on the destination's state; once the pool has stakers the reward is deposited directly (`parked: false`).
+- **`routed_stake::sweep<StakeShare, PoolShare, Currency>(stake_pool, routed_pool, parent_id): u64`** — permissionless; claims accrued rewards and commits them to the parent's pool. Returns the value moved. Total: a crank-facing call never aborts for having nothing to do — it is a no-op returning 0, with no wrapper event, when the wrapper is empty, when the wrapped stake has no registration for `Currency`, when that registration names a pool other than `stake_pool`, or when the claimed reward is zero. Otherwise it emits a `RoutedStakeSweptEvent` containing the routed/stake/pool addresses, transfer outcome, source and destination balances, shares, indices, carries, cumulative deposits, and registration debt before/after mutation. While the parent's pool has no registered stake, the reward is sent to the pool's own address (`parked: true`); once the pool has stakers it is deposited directly (`parked: false`).
 - **`routed_stake::unstake` / `restake`** — parent-gated; removes the position and returns its principal `Balance` / refills the emptied wrapper.
 - **`routed_stake::derived_address<StakeShare>(parent_id)`** — the wrapper's deterministic address; `assert_derived_from` verifies it on-chain.
-- Views: `id`, `has_stake`, `value`, `stake` (read-only, e.g. for `pool::pending_rewards`).
+- Views: `has_stake`, `value`, `stake` (read-only, e.g. for `pool::pending_rewards`),
+  `derived_address`, and `assert_derived_from`.
+
+Every lifecycle transition has one phantom-typed event: `RoutedStakeCreatedEvent`,
+`RoutedStakeSharedEvent`, `RoutedStakeRegisteredEvent`,
+`RoutedStakeUnregisteredEvent`, `RoutedStakeSweptEvent`,
+`RoutedStakeUnstakedEvent`, and `RoutedStakeRestakedEvent`. IDs are encoded as
+addresses for stable event consumers. Created/unstaked/restaked payloads are
+104-byte BCS values, shared is 81 bytes, registered/unregistered are 232 bytes,
+and swept is 481 bytes. `share` emits immediately before consuming the wrapper;
+an empty sentinel uses `has_stake: false`, `stake_id: @0`, and zero values.
 
 ## Dependencies
 
@@ -26,6 +36,9 @@ Lifecycle operations take the parent's `&mut UID` as the credential — cap-gati
 ## Build & test
 
 ```sh
-sui move build
-sui move test
+sui move build --lint --warnings-are-errors --build-env testnet
+sui move test --build-env testnet --coverage
+sui move coverage summary --summarize-functions
+sui move build --lint --warnings-are-errors --build-env mainnet
+sui move test --build-env mainnet --coverage
 ```

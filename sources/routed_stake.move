@@ -60,30 +60,90 @@ public struct RoutedStakeKey<phantom StakeShare>() has copy, drop, store;
 // === Events ===
 
 public struct RoutedStakeCreatedEvent<phantom StakeShare, phantom PoolShare> has copy, drop {
-    routed_stake_id: ID,
-    parent_id: ID,
+    routed_stake_id: address,
+    parent_id: address,
+    stake_id: address,
     staked_value: u64,
 }
 
+public struct RoutedStakeSharedEvent<phantom StakeShare, phantom PoolShare> has copy, drop {
+    routed_stake_id: address,
+    has_stake: bool,
+    stake_id: address,
+    staked_value: u64,
+    registration_count: u64,
+}
+
+public struct RoutedStakeRegisteredEvent<phantom StakeShare, phantom PoolShare, phantom Currency> has copy, drop {
+    routed_stake_id: address,
+    parent_id: address,
+    stake_id: address,
+    stake_pool_id: address,
+    staked_value: u64,
+    registration_count_before: u64,
+    registration_count_after: u64,
+    pool_staked_shares_before: u64,
+    pool_staked_shares_after: u64,
+    pool_cumulative_reward_per_share: u256,
+    registration_debt_after: u256,
+}
+
+public struct RoutedStakeUnregisteredEvent<phantom StakeShare, phantom PoolShare, phantom Currency> has copy, drop {
+    routed_stake_id: address,
+    parent_id: address,
+    stake_id: address,
+    stake_pool_id: address,
+    staked_value: u64,
+    registration_count_before: u64,
+    registration_count_after: u64,
+    pool_staked_shares_before: u64,
+    pool_staked_shares_after: u64,
+    pool_cumulative_reward_per_share: u256,
+    registration_debt_before: u256,
+}
+
 public struct RoutedStakeSweptEvent<phantom StakeShare, phantom PoolShare, phantom Currency> has copy, drop {
-    routed_stake_id: ID,
-    parent_id: ID,
+    routed_stake_id: address,
+    parent_id: address,
+    stake_id: address,
+    stake_pool_id: address,
+    routed_pool_id: address,
     value: u64,
     /// `true` when the reward was sent to the routed pool's own address
     /// because it had no stakers to attribute the deposit to; `false` when
     /// it was deposited into the accumulator directly.
     parked: bool,
+    staked_value: u64,
+    source_balance_before: u64,
+    source_balance_after: u64,
+    source_staked_shares: u64,
+    source_index: u256,
+    source_carry: u128,
+    source_cumulative_deposits: u128,
+    registration_debt_before: u256,
+    registration_debt_after: u256,
+    destination_balance_before: u64,
+    destination_balance_after: u64,
+    destination_staked_shares: u64,
+    destination_index_before: u256,
+    destination_index_after: u256,
+    destination_carry_before: u128,
+    destination_carry_after: u128,
+    destination_cumulative_deposits_before: u128,
+    destination_cumulative_deposits_after: u128,
 }
 
 public struct RoutedStakeUnstakedEvent<phantom StakeShare, phantom PoolShare> has copy, drop {
-    routed_stake_id: ID,
-    parent_id: ID,
+    routed_stake_id: address,
+    parent_id: address,
+    stake_id: address,
     unstaked_value: u64,
 }
 
 public struct RoutedStakeRestakedEvent<phantom StakeShare, phantom PoolShare> has copy, drop {
-    routed_stake_id: ID,
-    parent_id: ID,
+    routed_stake_id: address,
+    parent_id: address,
+    stake_id: address,
     staked_value: u64,
 }
 
@@ -106,10 +166,12 @@ public fun new<StakeShare, PoolShare>(
         id: claim(parent, RoutedStakeKey<StakeShare>()),
         stake: option::some(stake::new(balance, ctx)),
     };
+    let stake_id = object::id(routed.stake.borrow()).to_address();
 
     emit(RoutedStakeCreatedEvent<StakeShare, PoolShare> {
-        routed_stake_id: object::id(&routed),
-        parent_id,
+        routed_stake_id: object::id(&routed).to_address(),
+        parent_id: parent_id.to_address(),
+        stake_id,
         staked_value: routed.value(),
     });
 
@@ -118,6 +180,24 @@ public fun new<StakeShare, PoolShare>(
 
 /// Share the routed stake so anyone can `sweep` it.
 public fun share<StakeShare, PoolShare>(self: RoutedStake<StakeShare, PoolShare>) {
+    let routed_stake_id = object::id(&self).to_address();
+    let has_stake = self.stake.is_some();
+    let mut stake_id = @0x0;
+    let mut staked_value = 0;
+    let mut registration_count = 0;
+    if (has_stake) {
+        let wrapped = self.stake.borrow();
+        stake_id = object::id(wrapped).to_address();
+        staked_value = wrapped.value();
+        registration_count = wrapped.registration_count();
+    };
+    emit(RoutedStakeSharedEvent<StakeShare, PoolShare> {
+        routed_stake_id,
+        has_stake,
+        stake_id,
+        staked_value,
+        registration_count,
+    });
     transfer::share_object(self);
 }
 
@@ -134,7 +214,32 @@ public fun register<StakeShare, PoolShare, Currency>(
 ) {
     self.assert_derived_from(parent.to_inner());
     assert!(self.stake.is_some(), ENoStake);
+    let currency = type_name::with_defining_ids<Currency>();
+    let routed_stake_id = object::id(self).to_address();
+    let parent_id = parent.to_inner().to_address();
+    let stake_id = object::id(self.stake.borrow()).to_address();
+    let staked_value = self.stake.borrow().value();
+    let registration_count_before = self.stake.borrow().registration_count();
+    let pool_staked_shares_before = stake_pool.staked_shares();
     stake_pool.register_stake(self.stake.borrow_mut());
+    let registration_count_after = self.stake.borrow().registration_count();
+    let pool_staked_shares_after = stake_pool.staked_shares();
+    let registration = self.stake.borrow().get_registration(&currency);
+    let registration_debt_after = stake::registration_debt(registration);
+    let pool_cumulative_reward_per_share = stake_pool.cumulative_reward_per_share();
+    emit(RoutedStakeRegisteredEvent<StakeShare, PoolShare, Currency> {
+        routed_stake_id,
+        parent_id,
+        stake_id,
+        stake_pool_id: object::id(stake_pool).to_address(),
+        staked_value,
+        registration_count_before,
+        registration_count_after,
+        pool_staked_shares_before,
+        pool_staked_shares_after,
+        pool_cumulative_reward_per_share,
+        registration_debt_after,
+    });
 }
 
 /// Unregister the wrapped stake from a pool it earns from. The pool requires
@@ -148,7 +253,36 @@ public fun unregister<StakeShare, PoolShare, Currency>(
 ) {
     self.assert_derived_from(parent.to_inner());
     assert!(self.stake.is_some(), ENoStake);
+    let currency = type_name::with_defining_ids<Currency>();
+    let routed_stake_id = object::id(self).to_address();
+    let parent_id = parent.to_inner().to_address();
+    let stake_id = object::id(self.stake.borrow()).to_address();
+    let staked_value = self.stake.borrow().value();
+    let registration_count_before = self.stake.borrow().registration_count();
+    let pool_staked_shares_before = stake_pool.staked_shares();
+    let mut registration_debt_before = 0;
+    if (self.stake.borrow().has_registration(&currency)) {
+        registration_debt_before = stake::registration_debt(
+            self.stake.borrow().get_registration(&currency),
+        );
+    };
     stake_pool.unregister_stake(self.stake.borrow_mut());
+    let registration_count_after = self.stake.borrow().registration_count();
+    let pool_staked_shares_after = stake_pool.staked_shares();
+    let pool_cumulative_reward_per_share = stake_pool.cumulative_reward_per_share();
+    emit(RoutedStakeUnregisteredEvent<StakeShare, PoolShare, Currency> {
+        routed_stake_id,
+        parent_id,
+        stake_id,
+        stake_pool_id: object::id(stake_pool).to_address(),
+        staked_value,
+        registration_count_before,
+        registration_count_after,
+        pool_staked_shares_before,
+        pool_staked_shares_after,
+        pool_cumulative_reward_per_share,
+        registration_debt_before,
+    });
 }
 
 /// Remove the staked position and return its principal. Aborts (in
@@ -162,11 +296,13 @@ public fun unstake<StakeShare, PoolShare>(
 ): Balance<StakeShare> {
     self.assert_derived_from(parent.to_inner());
     assert!(self.stake.is_some(), ENoStake);
+    let stake_id = object::id(self.stake.borrow()).to_address();
     let balance = self.stake.extract().destroy();
 
     emit(RoutedStakeUnstakedEvent<StakeShare, PoolShare> {
-        routed_stake_id: object::id(self),
-        parent_id: parent.to_inner(),
+        routed_stake_id: object::id(self).to_address(),
+        parent_id: parent.to_inner().to_address(),
+        stake_id,
         unstaked_value: balance.value(),
     });
 
@@ -184,10 +320,12 @@ public fun restake<StakeShare, PoolShare>(
     self.assert_derived_from(parent.to_inner());
     assert!(self.stake.is_none(), EStakeExists);
     self.stake.fill(stake::new(balance, ctx));
+    let stake_id = object::id(self.stake.borrow()).to_address();
 
     emit(RoutedStakeRestakedEvent<StakeShare, PoolShare> {
-        routed_stake_id: object::id(self),
-        parent_id: parent.to_inner(),
+        routed_stake_id: object::id(self).to_address(),
+        parent_id: parent.to_inner().to_address(),
+        stake_id,
         staked_value: self.value(),
     });
 }
@@ -234,6 +372,23 @@ public fun sweep<StakeShare, PoolShare, Currency>(
     let registration = wrapped.get_registration(&currency);
     if (stake::registration_pool_id(registration) != object::id(stake_pool)) return 0;
 
+    let routed_stake_id = object::id(self).to_address();
+    let parent_address = parent_id.to_address();
+    let stake_id = object::id(wrapped).to_address();
+    let staked_value = wrapped.value();
+    let stake_pool_id = object::id(stake_pool).to_address();
+    let routed_pool_id = object::id(routed_pool).to_address();
+    let registration_debt_before = stake::registration_debt(registration);
+    let source_balance_before = stake_pool.balance().value();
+    let source_staked_shares = stake_pool.staked_shares();
+    let source_index = stake_pool.cumulative_reward_per_share();
+    let source_carry = stake_pool.carry();
+    let source_cumulative_deposits = stake_pool.cumulative_deposits();
+    let destination_balance_before = routed_pool.balance().value();
+    let destination_staked_shares = routed_pool.staked_shares();
+    let destination_index_before = routed_pool.cumulative_reward_per_share();
+    let destination_carry_before = routed_pool.carry();
+    let destination_cumulative_deposits_before = routed_pool.cumulative_deposits();
     let reward = stake_pool.claim_rewards(self.stake.borrow_mut());
     let value = reward.value();
     if (value == 0) {
@@ -248,11 +403,40 @@ public fun sweep<StakeShare, PoolShare, Currency>(
         routed_pool.deposit(reward);
     };
 
+    let registration_debt_after = stake::registration_debt(
+        self.stake.borrow().get_registration(&currency),
+    );
+    let source_balance_after = stake_pool.balance().value();
+    let destination_balance_after = routed_pool.balance().value();
+    let destination_index_after = routed_pool.cumulative_reward_per_share();
+    let destination_carry_after = routed_pool.carry();
+    let destination_cumulative_deposits_after = routed_pool.cumulative_deposits();
     emit(RoutedStakeSweptEvent<StakeShare, PoolShare, Currency> {
-        routed_stake_id: object::id(self),
-        parent_id,
+        routed_stake_id,
+        parent_id: parent_address,
+        stake_id,
+        stake_pool_id,
+        routed_pool_id,
         value,
         parked,
+        staked_value,
+        source_balance_before,
+        source_balance_after,
+        source_staked_shares,
+        source_index,
+        source_carry,
+        source_cumulative_deposits,
+        registration_debt_before,
+        registration_debt_after,
+        destination_balance_before,
+        destination_balance_after,
+        destination_staked_shares,
+        destination_index_before,
+        destination_index_after,
+        destination_carry_before,
+        destination_carry_after,
+        destination_cumulative_deposits_before,
+        destination_cumulative_deposits_after,
     });
 
     value
@@ -302,7 +486,42 @@ public fun assert_derived_from<StakeShare, PoolShare>(
 #[test_only]
 public fun swept_event_fields<StakeShare, PoolShare, Currency>(
     event: &RoutedStakeSweptEvent<StakeShare, PoolShare, Currency>,
-): (ID, ID, u64, bool) {
+): (address, address, address, address, address, u64, bool, u64, u64, u64, u64, u256, u128, u128, u256, u256, u64, u64, u64, u256, u256, u128, u128, u128, u128) {
+    (
+        event.routed_stake_id,
+        event.parent_id,
+        event.stake_id,
+        event.stake_pool_id,
+        event.routed_pool_id,
+        event.value,
+        event.parked,
+        event.staked_value,
+        event.source_balance_before,
+        event.source_balance_after,
+        event.source_staked_shares,
+        event.source_index,
+        event.source_carry,
+        event.source_cumulative_deposits,
+        event.registration_debt_before,
+        event.registration_debt_after,
+        event.destination_balance_before,
+        event.destination_balance_after,
+        event.destination_staked_shares,
+        event.destination_index_before,
+        event.destination_index_after,
+        event.destination_carry_before,
+        event.destination_carry_after,
+        event.destination_cumulative_deposits_before,
+        event.destination_cumulative_deposits_after,
+    )
+}
+
+/// Compatibility summary for tests that only need the event's routing and
+/// transfer outcome; `swept_event_fields` above exposes the complete payload.
+#[test_only]
+public fun swept_event_summary<StakeShare, PoolShare, Currency>(
+    event: &RoutedStakeSweptEvent<StakeShare, PoolShare, Currency>,
+): (address, address, u64, bool) {
     (event.routed_stake_id, event.parent_id, event.value, event.parked)
 }
 
@@ -310,6 +529,71 @@ public fun swept_event_fields<StakeShare, PoolShare, Currency>(
 #[test_only]
 public fun unstaked_event_fields<StakeShare, PoolShare>(
     event: &RoutedStakeUnstakedEvent<StakeShare, PoolShare>,
-): (ID, ID, u64) {
-    (event.routed_stake_id, event.parent_id, event.unstaked_value)
+): (address, address, address, u64) {
+    (event.routed_stake_id, event.parent_id, event.stake_id, event.unstaked_value)
+}
+
+#[test_only]
+public fun created_event_fields<StakeShare, PoolShare>(
+    event: &RoutedStakeCreatedEvent<StakeShare, PoolShare>,
+): (address, address, address, u64) {
+    (event.routed_stake_id, event.parent_id, event.stake_id, event.staked_value)
+}
+
+#[test_only]
+public fun shared_event_fields<StakeShare, PoolShare>(
+    event: &RoutedStakeSharedEvent<StakeShare, PoolShare>,
+): (address, bool, address, u64, u64) {
+    (
+        event.routed_stake_id,
+        event.has_stake,
+        event.stake_id,
+        event.staked_value,
+        event.registration_count,
+    )
+}
+
+#[test_only]
+public fun registered_event_fields<StakeShare, PoolShare, Currency>(
+    event: &RoutedStakeRegisteredEvent<StakeShare, PoolShare, Currency>,
+): (address, address, address, address, u64, u64, u64, u64, u64, u256, u256) {
+    (
+        event.routed_stake_id,
+        event.parent_id,
+        event.stake_id,
+        event.stake_pool_id,
+        event.staked_value,
+        event.registration_count_before,
+        event.registration_count_after,
+        event.pool_staked_shares_before,
+        event.pool_staked_shares_after,
+        event.pool_cumulative_reward_per_share,
+        event.registration_debt_after,
+    )
+}
+
+#[test_only]
+public fun unregistered_event_fields<StakeShare, PoolShare, Currency>(
+    event: &RoutedStakeUnregisteredEvent<StakeShare, PoolShare, Currency>,
+): (address, address, address, address, u64, u64, u64, u64, u64, u256, u256) {
+    (
+        event.routed_stake_id,
+        event.parent_id,
+        event.stake_id,
+        event.stake_pool_id,
+        event.staked_value,
+        event.registration_count_before,
+        event.registration_count_after,
+        event.pool_staked_shares_before,
+        event.pool_staked_shares_after,
+        event.pool_cumulative_reward_per_share,
+        event.registration_debt_before,
+    )
+}
+
+#[test_only]
+public fun restaked_event_fields<StakeShare, PoolShare>(
+    event: &RoutedStakeRestakedEvent<StakeShare, PoolShare>,
+): (address, address, address, u64) {
+    (event.routed_stake_id, event.parent_id, event.stake_id, event.staked_value)
 }

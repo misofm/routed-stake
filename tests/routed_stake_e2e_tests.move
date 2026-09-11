@@ -20,6 +20,7 @@ module routed_stake::routed_stake_e2e_tests;
 use routed_stake::routed_stake::{
     Self,
     RoutedStake,
+    RoutedStakeSharedEvent,
     RoutedStakeSweptEvent,
     RoutedStakeUnstakedEvent,
 };
@@ -27,6 +28,7 @@ use royalty_pool::pool::{Self, RoyaltyPool};
 use royalty_pool::stake;
 use std::unit_test::{assert_eq, destroy};
 use sui::balance;
+use sui::bcs;
 use sui::event;
 use sui::test_scenario::{Self, Scenario};
 
@@ -86,6 +88,17 @@ fun stranger_sweeps_into_shared_parent_pool() {
     let mut ts = test_scenario::begin(ADMIN);
     let parent_id = setup_shared(&mut ts);
 
+    let shared = event::events_by_type<RoutedStakeSharedEvent<ASSET_SHARE, PARENT_SHARE>>();
+    assert_eq!(shared.length(), 1);
+    let (shared_routed, shared_has_stake, shared_stake, shared_value, shared_count) =
+        routed_stake::shared_event_fields(&shared[0]);
+    assert!(shared_routed != @0x0);
+    assert_eq!(shared_has_stake, true);
+    assert!(shared_stake != @0x0);
+    assert_eq!(shared_value, 1000);
+    assert_eq!(shared_count, 1);
+    assert_eq!(bcs::to_bytes(&shared[0]).length(), 81);
+
     // --- Tx 2 (ADMIN): a fan registers in the parent's pool so the swept
     // deposit is attributable ---
     ts.next_tx(ADMIN);
@@ -117,11 +130,10 @@ fun stranger_sweeps_into_shared_parent_pool() {
     // deposited, not parked.
     let events = event::events_by_type<RoutedStakeSweptEvent<ASSET_SHARE, PARENT_SHARE, USD>>();
     assert_eq!(events.length(), 1);
-    let (event_routed_id, event_parent_id, event_value, event_parked) = routed_stake::swept_event_fields(
-        &events[0],
-    );
-    assert_eq!(event_routed_id, routed_id);
-    assert_eq!(event_parent_id, parent_id);
+    let (event_routed_id, event_parent_id, event_value, event_parked) =
+        routed_stake::swept_event_summary(&events[0]);
+    assert_eq!(event_routed_id, routed_id.to_address());
+    assert_eq!(event_parent_id, parent_id.to_address());
     assert_eq!(event_value, 500);
     assert_eq!(event_parked, false);
 
@@ -169,10 +181,10 @@ fun lifecycle_exits_and_refills_across_shared_transactions() {
     // `unstake` emits the exact recovered principal.
     let events = event::events_by_type<RoutedStakeUnstakedEvent<ASSET_SHARE, PARENT_SHARE>>();
     assert_eq!(events.length(), 1);
-    let (event_routed_id, event_parent_id, event_unstaked_value) =
+    let (event_routed_id, event_parent_id, _event_stake_id, event_unstaked_value) =
         routed_stake::unstaked_event_fields(&events[0]);
-    assert_eq!(event_routed_id, routed_id);
-    assert_eq!(event_parent_id, parent_id);
+    assert_eq!(event_routed_id, routed_id.to_address());
+    assert_eq!(event_parent_id, parent_id.to_address());
     assert_eq!(event_unstaked_value, 1000);
 
     // --- same tx: the emptied wrapper's derived address persists — refill it
@@ -293,7 +305,7 @@ fun sweep_into_stakeless_parent_pool_keeps_exit_open() {
     assert_eq!(routed_pool.balance().value(), 0); // parked at the pool's address
     let events = event::events_by_type<RoutedStakeSweptEvent<ASSET_SHARE, PARENT_SHARE, USD>>();
     assert_eq!(events.length(), 1);
-    let (_, _, event_value, event_parked) = routed_stake::swept_event_fields(&events[0]);
+    let (_, _, event_value, event_parked) = routed_stake::swept_event_summary(&events[0]);
     assert_eq!(event_value, 500);
     assert_eq!(event_parked, true);
     test_scenario::return_shared(stake_pool);
