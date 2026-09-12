@@ -37,7 +37,7 @@ fun zero_reward_emits_dependency_claim_only() {
     assert_eq!(event::events_by_type<routed_stake::RoutedStakeSweptEvent<A, P, U>>().length(), 0);
     let claims = event::events_by_type<RoyaltyClaimedEvent<A, U>>();
     assert_eq!(claims.length(), 1);
-    let (_, _, reward) = pool::royalty_claimed_event_fields(&claims[0]);
+    let (_, _, _, reward, _, _, _, _, _, _, _, _, _) = pool::royalty_claimed_event_fields(&claims[0]);
     assert_eq!(reward, 0);
     r.unregister(&mut parent, &mut sp);
     destroy(r.unstake(&mut parent)); destroy(r); destroy(sp); destroy(dp); asset.delete(); parent.delete();
