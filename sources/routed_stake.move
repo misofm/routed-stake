@@ -20,7 +20,10 @@
 /// `RoyaltyPool` creation. `register`/`unregister` are gated because a stake
 /// registers at most once per `Currency`: a permissionless register could
 /// grief by binding the stake to a garbage same-typed pool, permanently
-/// blocking the real one for that currency.
+/// blocking the real one for that currency. The one binding `register`
+/// refuses even from the parent is to the parent's own destination pool
+/// (`ESelfRoute`): with the source and destination being one object,
+/// `sweep` could never be called and the position could never exit.
 ///
 /// The derivation key encodes only `StakeShare` — at most one routed stake
 /// per `(parent, StakeShare)` pair, whatever `PoolShare` it used (the same
@@ -31,7 +34,7 @@
 /// stays usable forever.
 module routed_stake::routed_stake;
 
-use royalty_pool::pool::RoyaltyPool;
+use royalty_pool::pool::{Self, RoyaltyPool};
 use royalty_pool::stake::{Self, Stake};
 use std::type_name;
 use sui::balance::Balance;
@@ -43,6 +46,7 @@ use sui::event::emit;
 const ENotDerivedFromParent: u64 = 0;
 const ENoStake: u64 = 1;
 const EStakeExists: u64 = 2;
+const ESelfRoute: u64 = 3;
 
 // === Structs ===
 
@@ -206,7 +210,13 @@ public fun share<StakeShare, PoolShare>(self: RoutedStake<StakeShare, PoolShare>
 /// Register the wrapped stake with the pool it earns from, so future
 /// deposits accrue to it. Which same-typed pool is the *correct* one is the
 /// caller's concern — the parent's extension is expected to pin it (e.g. by
-/// derivation from the asset object) before delegating here.
+/// derivation from the asset object) before delegating here. The one pool
+/// refused outright (`ESelfRoute`) is the parent's own
+/// `RoyaltyPool<PoolShare, Currency>` — `sweep`'s destination — which only
+/// coincides with a `RoyaltyPool<StakeShare, Currency>` when
+/// `StakeShare == PoolShare`. This is an object-identity check, not a type
+/// check: the same share type staked in a pool under a *different* parent
+/// is a different object and stays allowed.
 public fun register<StakeShare, PoolShare, Currency>(
     self: &mut RoutedStake<StakeShare, PoolShare>,
     parent: &mut UID,
@@ -214,6 +224,16 @@ public fun register<StakeShare, PoolShare, Currency>(
 ) {
     self.assert_derived_from(parent.to_inner());
     assert!(self.stake.is_some(), ENoStake);
+    // Earning from the very pool `sweep` deposits into would need that one
+    // object as both of `sweep`'s `&mut` pool arguments — impossible for the
+    // borrow checker and for a PTB — so nothing could ever drain the
+    // rewards, and `unregister` (pending must be 0) and `unstake` (no
+    // registrations may remain) would abort forever: the principal would be
+    // locked. Refuse it here, the only place the route is bound.
+    assert!(
+        object::id(stake_pool).to_address() != pool::derived_address<PoolShare, Currency>(parent.to_inner()),
+        ESelfRoute,
+    );
     let currency = type_name::with_defining_ids<Currency>();
     let routed_stake_id = object::id(self).to_address();
     let parent_id = parent.to_inner().to_address();
