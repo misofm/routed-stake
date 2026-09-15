@@ -368,3 +368,208 @@ fun own_pools_for_other_currencies_do_not_interfere() {
     other_parent.delete();
     parent.delete();
 }
+
+// === Must succeed: further shapes the address check must let through ===
+
+/// Scenario 8: the parent's destination pool does not exist yet when
+/// `register` runs. The guard is a pure derivation — it needs no object at
+/// the derived address — so a same-typed foreign pool registers normally.
+/// The parent then creates its own pool at that address; it is a different
+/// object from the stake pool, so `sweep` is constructible (parked here, as
+/// the fresh pool has no stakers) and the position exits cleanly.
+#[test]
+fun destination_pool_created_after_registration_still_sweeps_and_exits() {
+    let ctx = &mut tx_context::dummy();
+    let mut parent = object::new(ctx);
+    let mut other_parent = object::new(ctx);
+    let parent_id = parent.to_inner();
+    let mut foreign_pool = pool::new<SHARE, USD>(&mut other_parent);
+
+    let mut routed = routed_stake::new<SHARE, SHARE>(
+        &mut parent,
+        balance::create_for_testing<SHARE>(1000),
+        ctx,
+    );
+    // No `RoyaltyPool<SHARE, USD>` under `parent` exists at this point.
+    routed.register(&mut parent, &mut foreign_pool);
+    foreign_pool.deposit(balance::create_for_testing<USD>(500));
+    assert_eq!(foreign_pool.pending_rewards(routed.stake()), 500);
+
+    // The destination is created after the fact, at the guarded address.
+    let mut own_pool = pool::new<SHARE, USD>(&mut parent);
+    assert_eq!(
+        object::id(&own_pool).to_address(),
+        pool::derived_address<SHARE, USD>(parent_id),
+    );
+    assert!(object::id(&own_pool) != object::id(&foreign_pool));
+    let value = routed.sweep(&mut foreign_pool, &mut own_pool, parent_id);
+    assert_eq!(value, 500);
+    assert_eq!(foreign_pool.pending_rewards(routed.stake()), 0);
+
+    routed.unregister(&mut parent, &mut foreign_pool);
+    let principal = routed.unstake(&mut parent);
+    assert_eq!(principal.value(), 1000);
+    assert!(!routed.has_stake());
+
+    destroy(principal);
+    destroy(routed);
+    destroy(foreign_pool);
+    destroy(own_pool);
+    parent.delete();
+    other_parent.delete();
+}
+
+/// Scenario 9: two routed stakes under one parent forming a cycle *inside*
+/// that parent. `RoutedStake<OTHER_SHARE, SHARE>` earns from P's
+/// `RoyaltyPool<OTHER_SHARE, USD>` and routes into P's `RoyaltyPool<SHARE,
+/// USD>`; `RoutedStake<SHARE, OTHER_SHARE>` earns from the latter and routes
+/// into the former. Neither registration is a self-route — each stake pool
+/// is a different derived object from that stake's own destination — so
+/// both sweeps are constructible, the cycle decays past an external holder,
+/// and both positions exit via sweep-then-unregister.
+#[test]
+fun cycle_inside_one_parent_is_not_a_self_route_and_both_exit() {
+    let ctx = &mut tx_context::dummy();
+    let mut parent = object::new(ctx);
+    let parent_id = parent.to_inner();
+    let mut pool_other = pool::new<OTHER_SHARE, USD>(&mut parent);
+    let mut pool_share = pool::new<SHARE, USD>(&mut parent);
+
+    let mut rs_a = routed_stake::new<OTHER_SHARE, SHARE>(
+        &mut parent,
+        balance::create_for_testing<OTHER_SHARE>(1000),
+        ctx,
+    );
+    let mut rs_b = routed_stake::new<SHARE, OTHER_SHARE>(
+        &mut parent,
+        balance::create_for_testing<SHARE>(1000),
+        ctx,
+    );
+    rs_a.register(&mut parent, &mut pool_other);
+    rs_b.register(&mut parent, &mut pool_share);
+
+    // An external holder in `pool_share` so the cycle decays.
+    let mut holder = stake::new(balance::create_for_testing<SHARE>(1000), ctx);
+    pool_share.register_stake(&mut holder);
+
+    pool_other.deposit(balance::create_for_testing<USD>(1000));
+    assert_eq!(rs_a.sweep(&mut pool_other, &mut pool_share, parent_id), 1000);
+    // rs_b holds half of pool_share: half bounces back into pool_other.
+    assert_eq!(rs_b.sweep(&mut pool_share, &mut pool_other, parent_id), 500);
+    assert_eq!(rs_a.sweep(&mut pool_other, &mut pool_share, parent_id), 500);
+    assert_eq!(rs_b.sweep(&mut pool_share, &mut pool_other, parent_id), 250);
+
+    // Exit rs_a: a final sweep drains its pending, then unregister/unstake.
+    assert_eq!(rs_a.sweep(&mut pool_other, &mut pool_share, parent_id), 250);
+    rs_a.unregister(&mut parent, &mut pool_other);
+    let principal_a = rs_a.unstake(&mut parent);
+    assert_eq!(principal_a.value(), 1000);
+
+    // Exit rs_b: its sweep now parks (pool_other has no stakers) and it
+    // still exits.
+    assert_eq!(rs_b.sweep(&mut pool_share, &mut pool_other, parent_id), 125);
+    rs_b.unregister(&mut parent, &mut pool_share);
+    let principal_b = rs_b.unstake(&mut parent);
+    assert_eq!(principal_b.value(), 1000);
+
+    // Value conserved: the holder ends with 500 + 250 + 125, 125 is parked
+    // at pool_other's address, and pool_share is drained.
+    let holder_reward = pool_share.claim_rewards(&mut holder);
+    assert_eq!(holder_reward.value(), 875);
+    assert_eq!(pool_share.balance().value(), 0);
+    pool_share.unregister_stake(&mut holder);
+
+    destroy(holder_reward);
+    destroy(holder);
+    destroy(principal_a);
+    destroy(principal_b);
+    destroy(rs_a);
+    destroy(rs_b);
+    destroy(pool_other);
+    destroy(pool_share);
+    parent.delete();
+}
+
+/// Scenario 10: two parents with the same share type. The guard keys on the
+/// wrapper's *own* parent only: `RoutedStake<SHARE, SHARE>` under P earns
+/// from Q's `RoyaltyPool<SHARE, USD>` while Q's own `RoutedStake<SHARE,
+/// SHARE>` earns from R's. Sweeps chain R → Q → P and both positions exit;
+/// nothing about Q's pool being someone else's destination interferes.
+#[test]
+fun two_parents_same_share_type_do_not_cross_guard() {
+    let ctx = &mut tx_context::dummy();
+    let mut p = object::new(ctx);
+    let mut q = object::new(ctx);
+    let mut r = object::new(ctx);
+    let p_id = p.to_inner();
+    let q_id = q.to_inner();
+    let mut p_pool = pool::new<SHARE, USD>(&mut p);
+    let mut q_pool = pool::new<SHARE, USD>(&mut q);
+    let mut r_pool = pool::new<SHARE, USD>(&mut r);
+
+    let mut rs_p = routed_stake::new<SHARE, SHARE>(
+        &mut p,
+        balance::create_for_testing<SHARE>(100),
+        ctx,
+    );
+    let mut rs_q = routed_stake::new<SHARE, SHARE>(
+        &mut q,
+        balance::create_for_testing<SHARE>(100),
+        ctx,
+    );
+    rs_p.register(&mut p, &mut q_pool); // P earns from Q, routes into P
+    rs_q.register(&mut q, &mut r_pool); // Q earns from R, routes into Q
+
+    r_pool.deposit(balance::create_for_testing<USD>(300));
+    assert_eq!(rs_q.sweep(&mut r_pool, &mut q_pool, q_id), 300);
+    // rs_p is q_pool's only staker, so the 300 are now pending for it.
+    assert_eq!(q_pool.pending_rewards(rs_p.stake()), 300);
+    assert_eq!(rs_p.sweep(&mut q_pool, &mut p_pool, p_id), 300);
+
+    rs_p.unregister(&mut p, &mut q_pool);
+    rs_q.unregister(&mut q, &mut r_pool);
+    let principal_p = rs_p.unstake(&mut p);
+    let principal_q = rs_q.unstake(&mut q);
+    assert_eq!(principal_p.value(), 100);
+    assert_eq!(principal_q.value(), 100);
+
+    destroy(principal_p);
+    destroy(principal_q);
+    destroy(rs_p);
+    destroy(rs_q);
+    destroy(p_pool);
+    destroy(q_pool);
+    destroy(r_pool);
+    p.delete();
+    q.delete();
+    r.delete();
+}
+
+// === Guard ordering against the dependency ===
+
+/// The self-route check precedes `pool::register_stake`'s own
+/// `EAlreadyRegistered`: a stake legitimately registered for `USD` (in Q's
+/// pool) that is then handed P's own `USD` pool aborts `ESelfRoute`, not the
+/// dependency's code 2. This is intentional — a self-route is refused before
+/// the dependency is consulted at all — and it is the one pre-existing
+/// failure shape whose abort code changed with the guard (on `main` this
+/// call reached `pool::register_stake` and aborted `EAlreadyRegistered`).
+#[test, expected_failure(abort_code = routed_stake::ESelfRoute, location = routed_stake)]
+fun self_route_check_runs_before_the_dependency_already_registered_guard() {
+    let ctx = &mut tx_context::dummy();
+    let mut parent = object::new(ctx);
+    let mut other_parent = object::new(ctx);
+    let mut foreign_pool = pool::new<SHARE, USD>(&mut other_parent);
+    let mut own_pool = pool::new<SHARE, USD>(&mut parent);
+
+    let mut routed = routed_stake::new<SHARE, SHARE>(
+        &mut parent,
+        balance::create_for_testing<SHARE>(1000),
+        ctx,
+    );
+    routed.register(&mut parent, &mut foreign_pool);
+    assert_eq!(routed.stake().registration_count(), 1);
+
+    routed.register(&mut parent, &mut own_pool);
+    abort
+}
