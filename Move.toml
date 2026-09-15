@@ -5,4 +5,4 @@ license = "Apache 2.0"
 authors = ["Miso Labs, Inc. (build@miso.network)"]
 
 [dependencies]
-royalty_pool = { git = "https://github.com/misofm/royalty-pool.git", rev = "3bfb265aa82e711b407c28849090ee3705ef2c68" }
+royalty_pool = { git = "https://github.com/misofm/royalty-pool.git", rev = "0eace94a36cf90f906f1e1ed85179e52404b6ac8" }
