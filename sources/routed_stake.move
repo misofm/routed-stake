@@ -70,14 +70,6 @@ public struct RoutedStakeCreatedEvent<phantom StakeShare, phantom PoolShare> has
     staked_value: u64,
 }
 
-public struct RoutedStakeSharedEvent<phantom StakeShare, phantom PoolShare> has copy, drop {
-    routed_stake_id: address,
-    has_stake: bool,
-    stake_id: address,
-    staked_value: u64,
-    registration_count: u64,
-}
-
 public struct RoutedStakeRegisteredEvent<phantom StakeShare, phantom PoolShare, phantom Currency> has copy, drop {
     routed_stake_id: address,
     parent_id: address,
@@ -184,24 +176,6 @@ public fun new<StakeShare, PoolShare>(
 
 /// Share the routed stake so anyone can `sweep` it.
 public fun share<StakeShare, PoolShare>(self: RoutedStake<StakeShare, PoolShare>) {
-    let routed_stake_id = object::id(&self).to_address();
-    let has_stake = self.stake.is_some();
-    let mut stake_id = @0x0;
-    let mut staked_value = 0;
-    let mut registration_count = 0;
-    if (has_stake) {
-        let wrapped = self.stake.borrow();
-        stake_id = object::id(wrapped).to_address();
-        staked_value = wrapped.value();
-        registration_count = wrapped.registration_count();
-    };
-    emit(RoutedStakeSharedEvent<StakeShare, PoolShare> {
-        routed_stake_id,
-        has_stake,
-        stake_id,
-        staked_value,
-        registration_count,
-    });
     transfer::share_object(self);
 }
 
@@ -558,19 +532,6 @@ public fun created_event_fields<StakeShare, PoolShare>(
     event: &RoutedStakeCreatedEvent<StakeShare, PoolShare>,
 ): (address, address, address, u64) {
     (event.routed_stake_id, event.parent_id, event.stake_id, event.staked_value)
-}
-
-#[test_only]
-public fun shared_event_fields<StakeShare, PoolShare>(
-    event: &RoutedStakeSharedEvent<StakeShare, PoolShare>,
-): (address, bool, address, u64, u64) {
-    (
-        event.routed_stake_id,
-        event.has_stake,
-        event.stake_id,
-        event.staked_value,
-        event.registration_count,
-    )
 }
 
 #[test_only]

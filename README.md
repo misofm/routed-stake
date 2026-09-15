@@ -20,14 +20,15 @@ Lifecycle operations take the parent's `&mut UID` as the credential — cap-gati
 - Views: `has_stake`, `value`, `stake` (read-only, e.g. for `pool::pending_rewards`),
   `derived_address`, and `assert_derived_from`.
 
-Every lifecycle transition has one phantom-typed event: `RoutedStakeCreatedEvent`,
-`RoutedStakeSharedEvent`, `RoutedStakeRegisteredEvent`,
+Business lifecycle transitions have phantom-typed events: `RoutedStakeCreatedEvent`,
+`RoutedStakeRegisteredEvent`,
 `RoutedStakeUnregisteredEvent`, `RoutedStakeSweptEvent`,
 `RoutedStakeUnstakedEvent`, and `RoutedStakeRestakedEvent`. IDs are encoded as
 addresses for stable event consumers. Created/unstaked/restaked payloads are
-104-byte BCS values, shared is 81 bytes, registered/unregistered are 232 bytes,
-and swept is 481 bytes. `share` emits immediately before consuming the wrapper;
-an empty sentinel uses `has_stake: false`, `stake_id: @0`, and zero values.
+104-byte BCS values, registered/unregistered are 232 bytes, and swept is 481 bytes.
+Construction emits Created once with parent identity and initial stake value.
+Sharing is silent, including for an emptied wrapper. Registration, unstaking and
+restaking retain their own events, including changes made before sharing.
 
 ## Dependencies
 
