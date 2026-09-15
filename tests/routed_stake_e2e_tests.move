@@ -20,7 +20,7 @@ module routed_stake::routed_stake_e2e_tests;
 use routed_stake::routed_stake::{
     Self,
     RoutedStake,
-    RoutedStakeSharedEvent,
+    RoutedStakeCreatedEvent,
     RoutedStakeSweptEvent,
     RoutedStakeUnstakedEvent,
 };
@@ -73,7 +73,9 @@ fun setup_shared(ts: &mut Scenario): ID {
 
     stake_pool.share();
     routed_pool.share();
+    let event_count = event::num_events();
     routed_stake::share(routed);
+    assert_eq!(event::num_events(), event_count);
     transfer::share_object(parent);
     transfer::share_object(asset);
 
@@ -88,16 +90,15 @@ fun stranger_sweeps_into_shared_parent_pool() {
     let mut ts = test_scenario::begin(ADMIN);
     let parent_id = setup_shared(&mut ts);
 
-    let shared = event::events_by_type<RoutedStakeSharedEvent<ASSET_SHARE, PARENT_SHARE>>();
-    assert_eq!(shared.length(), 1);
-    let (shared_routed, shared_has_stake, shared_stake, shared_value, shared_count) =
-        routed_stake::shared_event_fields(&shared[0]);
-    assert!(shared_routed != @0x0);
-    assert_eq!(shared_has_stake, true);
-    assert!(shared_stake != @0x0);
-    assert_eq!(shared_value, 1000);
-    assert_eq!(shared_count, 1);
-    assert_eq!(bcs::to_bytes(&shared[0]).length(), 81);
+    let created = event::events_by_type<RoutedStakeCreatedEvent<ASSET_SHARE, PARENT_SHARE>>();
+    assert_eq!(created.length(), 1);
+    let (created_routed, created_parent, created_stake, created_value) =
+        routed_stake::created_event_fields(&created[0]);
+    assert_eq!(created_routed, routed_stake::derived_address<ASSET_SHARE>(parent_id));
+    assert_eq!(created_parent, parent_id.to_address());
+    assert!(created_stake != @0x0);
+    assert_eq!(created_value, 1000);
+    assert_eq!(bcs::to_bytes(&created[0]).length(), 104);
 
     // --- Tx 2 (ADMIN): a fan registers in the parent's pool so the swept
     // deposit is attributable ---

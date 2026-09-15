@@ -22,7 +22,6 @@ use royalty_pool::pool::{Self, RoyaltyPool};
 use royalty_pool::stake;
 use std::unit_test::{assert_eq, destroy};
 use sui::balance;
-use sui::bcs;
 use sui::event;
 
 // Mirrored from royalty_pool::pool (private there).
@@ -573,7 +572,7 @@ fun new_twice_for_same_parent_and_share_aborts() {
 
 
 #[test]
-fun sharing_empty_wrapper_uses_zero_sentinel() {
+fun sharing_empty_wrapper_is_silent() {
     let ctx = &mut tx_context::dummy();
     let (asset, mut parent, stake_pool, routed_pool) = setup(ctx);
     let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
@@ -582,17 +581,10 @@ fun sharing_empty_wrapper_uses_zero_sentinel() {
         ctx,
     );
     destroy(routed.unstake(&mut parent));
+    assert!(!routed.has_stake());
+    let event_count = event::num_events();
     routed_stake::share(routed);
-
-    let shared = event::events_by_type<routed_stake::RoutedStakeSharedEvent<ASSET_SHARE, PARENT_SHARE>>();
-    assert_eq!(shared.length(), 1);
-    let (_, has_stake, stake_id, staked_value, registration_count) =
-        routed_stake::shared_event_fields(&shared[0]);
-    assert_eq!(has_stake, false);
-    assert_eq!(stake_id, @0x0);
-    assert_eq!(staked_value, 0);
-    assert_eq!(registration_count, 0);
-    assert_eq!(bcs::to_bytes(&shared[0]).length(), 81);
+    assert_eq!(event::num_events(), event_count);
 
     destroy(stake_pool);
     destroy(routed_pool);
