@@ -25,11 +25,11 @@ deps = { std = "MoveStdlib", sui = "Sui" }
 [pinned.mainnet.routed_stake]
 source = { root = true }
 use_environment = "mainnet"
-manifest_digest = "6E33324B917CC93C4E6D00AC90B25A0A83B36B3F036820F5848A39982E2B0DB5"
+manifest_digest = "3B15BA8D3B88E276A5BDEB82E68FF28432AF5004ADC09EE7FF55E94C31BF4D1A"
 deps = { royalty_pool = "royalty_pool", std = "MoveStdlib", sui = "Sui" }
 
 [pinned.mainnet.royalty_pool]
-source = { git = "https://github.com/misofm/royalty-pool.git", subdir = ".", rev = "3fc2eee57a128874f9405cf218c613627824dc8e" }
+source = { git = "https://github.com/misofm/royalty-pool.git", subdir = ".", rev = "7b140a56940981def6eaadb30ea187b81f4f9b04" }
 use_environment = "mainnet"
 manifest_digest = "18C7216D95B3FE2C7FD17E66A3ADDE02CF96FC7D3CE1565FCB62BE8A517198A3"
 deps = { hikida = "hikida", std = "MoveStdlib", sui = "Sui" }
@@ -55,11 +55,11 @@ deps = { std = "MoveStdlib", sui = "Sui" }
 [pinned.testnet.routed_stake]
 source = { root = true }
 use_environment = "testnet"
-manifest_digest = "5C86A72D2C8CA943F0454DBFE949F9BD94F5C3E61139C272D4B04F1505CC1F1F"
+manifest_digest = "3CD0F3B2FA22473834CFEFB0FDA0DA438AFBCAE3BEE940D749A1F9B4AD69C03A"
 deps = { royalty_pool = "royalty_pool", std = "MoveStdlib", sui = "Sui" }
 
 [pinned.testnet.royalty_pool]
-source = { git = "https://github.com/misofm/royalty-pool.git", subdir = ".", rev = "3fc2eee57a128874f9405cf218c613627824dc8e" }
+source = { git = "https://github.com/misofm/royalty-pool.git", subdir = ".", rev = "7b140a56940981def6eaadb30ea187b81f4f9b04" }
 use_environment = "testnet"
 manifest_digest = "9AD740CF450106338DF768A6B452C2E3913D130508E0DA3F0FC2D8B7113BC1AD"
 deps = { hikida = "hikida", std = "MoveStdlib", sui = "Sui" }

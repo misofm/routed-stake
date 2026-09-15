@@ -27,18 +27,14 @@ fun assert_silent() {
 }
 
 #[test]
-fun zero_reward_emits_dependency_claim_only() {
+fun zero_reward_is_silent_at_both_event_layers() {
     let ctx = &mut tx_context::dummy();
     let (asset, mut parent, mut sp, mut dp) = setup(ctx);
     let pi = parent.to_inner();
     let mut r = routed_stake::new<A, P>(&mut parent, balance::create_for_testing<A>(1000), ctx);
     r.register(&mut parent, &mut sp);
     assert_eq!(r.sweep(&mut sp, &mut dp, pi), 0);
-    assert_eq!(event::events_by_type<routed_stake::RoutedStakeSweptEvent<A, P, U>>().length(), 0);
-    let claims = event::events_by_type<RoyaltyClaimedEvent<A, U>>();
-    assert_eq!(claims.length(), 1);
-    let (_, _, _, reward, _, _, _, _, _, _, _, _, _) = pool::royalty_claimed_event_fields(&claims[0]);
-    assert_eq!(reward, 0);
+    assert_silent();
     r.unregister(&mut parent, &mut sp);
     destroy(r.unstake(&mut parent)); destroy(r); destroy(sp); destroy(dp); asset.delete(); parent.delete();
 }
