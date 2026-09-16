@@ -19,7 +19,7 @@ public struct U {}
 fun parked_sweep_event_asserts_all_destination_fields() {
     let ctx = &mut tx_context::dummy();
     let mut ap = object::new(ctx); let mut pp = object::new(ctx);
-    let mut sp = pool::new<A, U>(&mut ap); let mut dp = pool::new<P, U>(&mut pp);
+    let mut sp = pool::new_for_testing<A, U>(&mut ap); let mut dp = pool::new_for_testing<P, U>(&mut pp);
     let pi = pp.to_inner(); let pa = pi.to_address();
     let mut r = routed_stake::new<A, P>(&mut pp, balance::create_for_testing<A>(1000), ctx);
     let ri = object::id(&r).to_address(); let si = object::id(r.stake()).to_address();

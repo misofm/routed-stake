@@ -48,8 +48,8 @@ fun setup(
 ): (UID, UID, RoyaltyPool<ASSET_SHARE, USD>, RoyaltyPool<PARENT_SHARE, USD>) {
     let mut asset = object::new(ctx);
     let mut parent = object::new(ctx);
-    let stake_pool = pool::new<ASSET_SHARE, USD>(&mut asset);
-    let routed_pool = pool::new<PARENT_SHARE, USD>(&mut parent);
+    let stake_pool = pool::new_for_testing<ASSET_SHARE, USD>(&mut asset);
+    let routed_pool = pool::new_for_testing<PARENT_SHARE, USD>(&mut parent);
     (asset, parent, stake_pool, routed_pool)
 }
 
@@ -156,7 +156,7 @@ fun sweep_rejects_foreign_routed_pool() {
     let parent_id = parent.to_inner();
     // An attacker's same-typed pool, derived from a parent they control.
     let mut attacker_parent = object::new(ctx);
-    let mut attacker_pool = pool::new<PARENT_SHARE, USD>(&mut attacker_parent);
+    let mut attacker_pool = pool::new_for_testing<PARENT_SHARE, USD>(&mut attacker_parent);
 
     let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
         &mut parent,
@@ -199,7 +199,7 @@ fun sweep_asserts_routed_pool_derivation_before_the_no_stake_guard() {
     let (_asset, mut parent, mut stake_pool, _routed_pool) = setup(ctx);
     let parent_id = parent.to_inner();
     let mut foreign_parent = object::new(ctx);
-    let mut foreign_pool = pool::new<PARENT_SHARE, USD>(&mut foreign_parent);
+    let mut foreign_pool = pool::new_for_testing<PARENT_SHARE, USD>(&mut foreign_parent);
 
     let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
         &mut parent,
@@ -301,7 +301,7 @@ fun unregister_against_a_different_pool_aborts() {
     let ctx = &mut tx_context::dummy();
     let (_asset_x, mut parent, mut stake_pool_x, _routed_pool) = setup(ctx);
     let mut asset_y = object::new(ctx);
-    let mut stake_pool_y = pool::new<ASSET_SHARE, USD>(&mut asset_y);
+    let mut stake_pool_y = pool::new_for_testing<ASSET_SHARE, USD>(&mut asset_y);
 
     let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
         &mut parent,
@@ -453,7 +453,7 @@ fun sweep_against_a_different_pool_of_the_same_currency_is_a_total_no_op() {
     let (asset_x, mut parent, mut stake_pool_x, mut routed_pool) = setup(ctx);
     let parent_id = parent.to_inner();
     let mut asset_y = object::new(ctx);
-    let mut stake_pool_y = pool::new<ASSET_SHARE, USD>(&mut asset_y);
+    let mut stake_pool_y = pool::new_for_testing<ASSET_SHARE, USD>(&mut asset_y);
 
     let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
         &mut parent,

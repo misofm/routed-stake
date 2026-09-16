@@ -22,8 +22,8 @@ fun successful_phantom_instantiations_have_separate_typed_streams() {
     let ctx = &mut tx_context::dummy();
     let mut a1 = object::new(ctx); let mut a2 = object::new(ctx);
     let mut p1 = object::new(ctx); let mut p2 = object::new(ctx);
-    let mut sp1 = pool::new<S1, C1>(&mut a1); let mut sp2 = pool::new<S2, C2>(&mut a2);
-    let mut dp1 = pool::new<P1, C1>(&mut p1); let mut dp2 = pool::new<P2, C2>(&mut p2);
+    let mut sp1 = pool::new_for_testing<S1, C1>(&mut a1); let mut sp2 = pool::new_for_testing<S2, C2>(&mut a2);
+    let mut dp1 = pool::new_for_testing<P1, C1>(&mut p1); let mut dp2 = pool::new_for_testing<P2, C2>(&mut p2);
     let pi1 = p1.to_inner(); let pi2 = p2.to_inner();
     let mut r1 = routed_stake::new<S1, P1>(&mut p1, balance::create_for_testing<S1>(100), ctx);
     let mut r2 = routed_stake::new<S2, P2>(&mut p2, balance::create_for_testing<S2>(200), ctx);

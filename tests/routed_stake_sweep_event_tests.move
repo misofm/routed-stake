@@ -20,8 +20,8 @@ public struct U {}
 fun setup(ctx: &mut TxContext): (UID, UID, RoyaltyPool<A, U>, RoyaltyPool<P, U>) {
     let mut a = object::new(ctx);
     let mut p = object::new(ctx);
-    let sp = pool::new<A, U>(&mut a);
-    let dp = pool::new<P, U>(&mut p);
+    let sp = pool::new_for_testing<A, U>(&mut a);
+    let dp = pool::new_for_testing<P, U>(&mut p);
     (a, p, sp, dp)
 }
 
