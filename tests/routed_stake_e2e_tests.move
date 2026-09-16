@@ -62,8 +62,8 @@ fun setup_shared(ts: &mut Scenario): ID {
     let mut asset = Asset { id: object::new(ts.ctx()) };
     let parent_id = parent.id.to_inner();
 
-    let mut stake_pool = pool::new<ASSET_SHARE, USD>(&mut asset.id);
-    let routed_pool = pool::new<PARENT_SHARE, USD>(&mut parent.id);
+    let mut stake_pool = pool::new_for_testing<ASSET_SHARE, USD>(&mut asset.id);
+    let routed_pool = pool::new_for_testing<PARENT_SHARE, USD>(&mut parent.id);
     let mut routed = routed_stake::new<ASSET_SHARE, PARENT_SHARE>(
         &mut parent.id,
         balance::create_for_testing<ASSET_SHARE>(1000),

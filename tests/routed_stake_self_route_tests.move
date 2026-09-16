@@ -40,7 +40,7 @@ public struct EUR {}
 fun register_rejects_the_parents_own_pool() {
     let ctx = &mut tx_context::dummy();
     let mut parent = object::new(ctx);
-    let mut own_pool = pool::new<SHARE, USD>(&mut parent);
+    let mut own_pool = pool::new_for_testing<SHARE, USD>(&mut parent);
     // Sanity: this is the pool `sweep` would demand as `routed_pool`.
     assert_eq!(
         object::id(&own_pool).to_address(),
@@ -64,7 +64,7 @@ fun register_rejects_the_parents_own_pool() {
 fun register_rejects_the_parents_own_pool_after_restake() {
     let ctx = &mut tx_context::dummy();
     let mut parent = object::new(ctx);
-    let mut own_pool = pool::new<SHARE, USD>(&mut parent);
+    let mut own_pool = pool::new_for_testing<SHARE, USD>(&mut parent);
 
     let mut routed = routed_stake::new<SHARE, SHARE>(
         &mut parent,
@@ -89,8 +89,8 @@ fun register_rejects_the_parents_own_pool_for_a_second_currency() {
     let ctx = &mut tx_context::dummy();
     let mut parent = object::new(ctx);
     let mut other_parent = object::new(ctx);
-    let mut foreign_usd_pool = pool::new<SHARE, USD>(&mut other_parent);
-    let mut own_eur_pool = pool::new<SHARE, EUR>(&mut parent);
+    let mut foreign_usd_pool = pool::new_for_testing<SHARE, USD>(&mut other_parent);
+    let mut own_eur_pool = pool::new_for_testing<SHARE, EUR>(&mut parent);
 
     let mut routed = routed_stake::new<SHARE, SHARE>(
         &mut parent,
@@ -115,7 +115,7 @@ fun self_route_check_runs_after_the_credential_check() {
     let ctx = &mut tx_context::dummy();
     let mut parent = object::new(ctx);
     let mut other = object::new(ctx);
-    let mut own_pool = pool::new<SHARE, USD>(&mut parent);
+    let mut own_pool = pool::new_for_testing<SHARE, USD>(&mut parent);
 
     let mut routed = routed_stake::new<SHARE, SHARE>(
         &mut parent,
@@ -133,7 +133,7 @@ fun self_route_check_runs_after_the_credential_check() {
 fun self_route_check_runs_after_the_no_stake_guard() {
     let ctx = &mut tx_context::dummy();
     let mut parent = object::new(ctx);
-    let mut own_pool = pool::new<SHARE, USD>(&mut parent);
+    let mut own_pool = pool::new_for_testing<SHARE, USD>(&mut parent);
 
     let mut routed = routed_stake::new<SHARE, SHARE>(
         &mut parent,
@@ -159,8 +159,8 @@ fun v1_shape_different_share_types_full_lifecycle() {
     let mut recording = object::new(ctx);
     let mut composition = object::new(ctx);
     let composition_id = composition.to_inner();
-    let mut recording_pool = pool::new<RECORDING_SHARE, USD>(&mut recording);
-    let mut composition_pool = pool::new<COMPOSITION_SHARE, USD>(&mut composition);
+    let mut recording_pool = pool::new_for_testing<RECORDING_SHARE, USD>(&mut recording);
+    let mut composition_pool = pool::new_for_testing<COMPOSITION_SHARE, USD>(&mut composition);
     // The guard compares against the composition's own `<COMPOSITION_SHARE,
     // USD>` pool, which is a different object from the recording's pool.
     assert!(
@@ -214,8 +214,8 @@ fun same_share_type_under_a_different_parent_full_lifecycle() {
     let mut parent = object::new(ctx);
     let mut other_parent = object::new(ctx);
     let parent_id = parent.to_inner();
-    let mut foreign_pool = pool::new<SHARE, USD>(&mut other_parent);
-    let mut own_pool = pool::new<SHARE, USD>(&mut parent);
+    let mut foreign_pool = pool::new_for_testing<SHARE, USD>(&mut other_parent);
+    let mut own_pool = pool::new_for_testing<SHARE, USD>(&mut parent);
     // Same type, different derivation → different object.
     assert!(
         object::id(&foreign_pool).to_address() != pool::derived_address<SHARE, USD>(parent_id),
@@ -264,8 +264,8 @@ fun different_share_types_both_pools_under_the_parent_full_lifecycle() {
     let ctx = &mut tx_context::dummy();
     let mut parent = object::new(ctx);
     let parent_id = parent.to_inner();
-    let mut stake_pool = pool::new<OTHER_SHARE, USD>(&mut parent);
-    let mut routed_pool = pool::new<SHARE, USD>(&mut parent);
+    let mut stake_pool = pool::new_for_testing<OTHER_SHARE, USD>(&mut parent);
+    let mut routed_pool = pool::new_for_testing<SHARE, USD>(&mut parent);
     assert!(object::id(&stake_pool) != object::id(&routed_pool));
     assert!(
         object::id(&stake_pool).to_address() != pool::derived_address<SHARE, USD>(parent_id),
@@ -318,10 +318,10 @@ fun own_pools_for_other_currencies_do_not_interfere() {
     let mut parent = object::new(ctx);
     let mut other_parent = object::new(ctx);
     let parent_id = parent.to_inner();
-    let mut foreign_usd_pool = pool::new<SHARE, USD>(&mut other_parent);
-    let mut foreign_eur_pool = pool::new<SHARE, EUR>(&mut other_parent);
-    let mut own_usd_pool = pool::new<SHARE, USD>(&mut parent);
-    let mut own_eur_pool = pool::new<SHARE, EUR>(&mut parent);
+    let mut foreign_usd_pool = pool::new_for_testing<SHARE, USD>(&mut other_parent);
+    let mut foreign_eur_pool = pool::new_for_testing<SHARE, EUR>(&mut other_parent);
+    let mut own_usd_pool = pool::new_for_testing<SHARE, USD>(&mut parent);
+    let mut own_eur_pool = pool::new_for_testing<SHARE, EUR>(&mut parent);
     assert!(
         pool::derived_address<SHARE, USD>(parent_id) != pool::derived_address<SHARE, EUR>(parent_id),
     );
@@ -383,7 +383,7 @@ fun destination_pool_created_after_registration_still_sweeps_and_exits() {
     let mut parent = object::new(ctx);
     let mut other_parent = object::new(ctx);
     let parent_id = parent.to_inner();
-    let mut foreign_pool = pool::new<SHARE, USD>(&mut other_parent);
+    let mut foreign_pool = pool::new_for_testing<SHARE, USD>(&mut other_parent);
 
     let mut routed = routed_stake::new<SHARE, SHARE>(
         &mut parent,
@@ -396,7 +396,7 @@ fun destination_pool_created_after_registration_still_sweeps_and_exits() {
     assert_eq!(foreign_pool.pending_rewards(routed.stake()), 500);
 
     // The destination is created after the fact, at the guarded address.
-    let mut own_pool = pool::new<SHARE, USD>(&mut parent);
+    let mut own_pool = pool::new_for_testing<SHARE, USD>(&mut parent);
     assert_eq!(
         object::id(&own_pool).to_address(),
         pool::derived_address<SHARE, USD>(parent_id),
@@ -432,8 +432,8 @@ fun cycle_inside_one_parent_is_not_a_self_route_and_both_exit() {
     let ctx = &mut tx_context::dummy();
     let mut parent = object::new(ctx);
     let parent_id = parent.to_inner();
-    let mut pool_other = pool::new<OTHER_SHARE, USD>(&mut parent);
-    let mut pool_share = pool::new<SHARE, USD>(&mut parent);
+    let mut pool_other = pool::new_for_testing<OTHER_SHARE, USD>(&mut parent);
+    let mut pool_share = pool::new_for_testing<SHARE, USD>(&mut parent);
 
     let mut rs_a = routed_stake::new<OTHER_SHARE, SHARE>(
         &mut parent,
@@ -503,9 +503,9 @@ fun two_parents_same_share_type_do_not_cross_guard() {
     let mut r = object::new(ctx);
     let p_id = p.to_inner();
     let q_id = q.to_inner();
-    let mut p_pool = pool::new<SHARE, USD>(&mut p);
-    let mut q_pool = pool::new<SHARE, USD>(&mut q);
-    let mut r_pool = pool::new<SHARE, USD>(&mut r);
+    let mut p_pool = pool::new_for_testing<SHARE, USD>(&mut p);
+    let mut q_pool = pool::new_for_testing<SHARE, USD>(&mut q);
+    let mut r_pool = pool::new_for_testing<SHARE, USD>(&mut r);
 
     let mut rs_p = routed_stake::new<SHARE, SHARE>(
         &mut p,
@@ -559,8 +559,8 @@ fun self_route_check_runs_before_the_dependency_already_registered_guard() {
     let ctx = &mut tx_context::dummy();
     let mut parent = object::new(ctx);
     let mut other_parent = object::new(ctx);
-    let mut foreign_pool = pool::new<SHARE, USD>(&mut other_parent);
-    let mut own_pool = pool::new<SHARE, USD>(&mut parent);
+    let mut foreign_pool = pool::new_for_testing<SHARE, USD>(&mut other_parent);
+    let mut own_pool = pool::new_for_testing<SHARE, USD>(&mut parent);
 
     let mut routed = routed_stake::new<SHARE, SHARE>(
         &mut parent,

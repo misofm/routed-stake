@@ -17,7 +17,7 @@ public struct U {}
 
 fun setup(ctx: &mut TxContext): (UID, UID, RoyaltyPool<A, U>, RoyaltyPool<P, U>) {
     let mut a = object::new(ctx); let mut p = object::new(ctx);
-    let sp = pool::new<A, U>(&mut a); let dp = pool::new<P, U>(&mut p);
+    let sp = pool::new_for_testing<A, U>(&mut a); let dp = pool::new_for_testing<P, U>(&mut p);
     (a, p, sp, dp)
 }
 
@@ -59,7 +59,7 @@ fun empty_unregistered_and_wrong_source_are_wrapper_and_dependency_silent() {
 
     let (asset, mut parent, mut sp, mut dp) = setup(ctx);
     let pi = parent.to_inner(); let mut foreign_asset = object::new(ctx);
-    let mut foreign = pool::new<A, U>(&mut foreign_asset);
+    let mut foreign = pool::new_for_testing<A, U>(&mut foreign_asset);
     let mut wrong = routed_stake::new<A, P>(&mut parent, balance::create_for_testing<A>(1000), ctx);
     wrong.register(&mut parent, &mut sp);
     assert_eq!(wrong.sweep(&mut foreign, &mut dp, pi), 0);
